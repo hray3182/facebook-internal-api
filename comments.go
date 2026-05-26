@@ -123,8 +123,12 @@ func parseCommentsResponse(body string) ([]Comment, string, *PostInfo, error) {
 		bodyMap := jsonMap(node, "body")
 		expInfo := jsonMap(fb, "expansion_info")
 		reactors := jsonMap(fb, "reactors")
+		author := jsonMap(node, "author")
 
 		comments = append(comments, Comment{
+			CommentID:      jsonStr(node, "id"),
+			AuthorID:       jsonStr(author, "id"),
+			AuthorName:     jsonStr(author, "name"),
 			Text:           jsonStr(bodyMap, "text"),
 			ReactionCount:  jsonStr(reactors, "count_reduced"),
 			FeedbackID:     jsonStr(fb, "id"),
@@ -155,8 +159,11 @@ func parseRepliesResponse(body string) ([]Reply, error) {
 
 		bodyMap := jsonMap(node, "body")
 		reactors := jsonMap(fb, "reactors")
+		author := jsonMap(node, "author")
 
 		replies = append(replies, Reply{
+			AuthorID:      jsonStr(author, "id"),
+			AuthorName:    jsonStr(author, "name"),
 			Text:          jsonStr(bodyMap, "text"),
 			ReactionCount: jsonStr(reactors, "count_reduced"),
 		})

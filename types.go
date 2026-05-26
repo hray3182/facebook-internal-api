@@ -15,6 +15,10 @@ type Post struct {
 
 // Comment represents a top-level comment on a post.
 type Comment struct {
+	CommentID  string `json:"comment_id,omitempty"`
+	AuthorID   string `json:"author_id,omitempty"`
+	AuthorName string `json:"author_name,omitempty"`
+
 	Text          string `json:"text"`
 	ReactionCount string `json:"reaction_count"`
 
@@ -25,6 +29,9 @@ type Comment struct {
 
 // Reply represents a reply to a comment.
 type Reply struct {
+	AuthorID   string `json:"author_id,omitempty"`
+	AuthorName string `json:"author_name,omitempty"`
+
 	Text          string `json:"text"`
 	ReactionCount string `json:"reaction_count"`
 }
