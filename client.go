@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"time"
 )
 
 const graphqlURL = "https://www.facebook.com/api/graphql/"
@@ -16,29 +17,35 @@ const graphqlURL = "https://www.facebook.com/api/graphql/"
 // DocIDs holds the Facebook GraphQL document IDs used by each API method.
 // Facebook rotates these periodically; pass updated values via WithDocIDs.
 type DocIDs struct {
-	Posts    string // ProfileCometTimelineFeedRefetchQuery
-	Groups   string // GroupsCometFeedRegularStoriesPaginationQuery
-	Comments string // CommentsListComponentsPaginationQuery
-	Replies  string // Depth1CommentsListPaginationQuery
-	Photos   string // CometPhotoRootContentQuery
+	Posts         string // ProfileCometTimelineFeedRefetchQuery
+	Groups        string // GroupsCometFeedRegularStoriesPaginationQuery
+	Comments      string // CommentsListComponentsPaginationQuery
+	Replies       string // Depth1CommentsListPaginationQuery
+	Photos        string // CometPhotoRootContentQuery
+	CreateComment string // useCometUFICreateCommentMutation
+	DeleteComment string // useCometUFIDeleteCommentMutation
 }
 
-// DefaultDocIDs contains the doc_id values known to work as of 2025-05.
+// DefaultDocIDs contains the doc_id values known to work as of 2026-07.
 var DefaultDocIDs = DocIDs{
-	Posts:    "25430544756617998",
-	Groups:   "25716860671307636",
-	Comments: "25550760954572974",
-	Replies:  "26570577339199586",
-	Photos:   "26168653472729001",
+	Posts:         "25430544756617998",
+	Groups:        "25716860671307636",
+	Comments:      "25550760954572974",
+	Replies:       "26570577339199586",
+	Photos:        "26168653472729001",
+	CreateComment: "27998998286374727",
+	DeleteComment: "27050675991271097",
 }
 
 // Client talks to Facebook's internal GraphQL API.
 type Client struct {
-	http      *http.Client
-	cookies   map[string]string
-	fbDTSG    string
-	userAgent string
-	docIDs    DocIDs
+	http       *http.Client
+	cookies    map[string]string
+	fbDTSG     string
+	lsd        string
+	userAgent  string
+	docIDs     DocIDs
+	retryDelay time.Duration
 }
 
 // Option configures a Client.
@@ -52,6 +59,11 @@ func WithHTTPClient(c *http.Client) Option {
 // WithUserAgent overrides the default User-Agent header.
 func WithUserAgent(ua string) Option {
 	return func(cl *Client) { cl.userAgent = ua }
+}
+
+// WithLSD sends Facebook's lsd token in both the GraphQL form body and X-FB-LSD header.
+func WithLSD(lsd string) Option {
+	return func(cl *Client) { cl.lsd = lsd }
 }
 
 // WithDocIDs overrides the default GraphQL document IDs.
@@ -73,17 +85,24 @@ func WithDocIDs(ids DocIDs) Option {
 		if ids.Photos != "" {
 			cl.docIDs.Photos = ids.Photos
 		}
+		if ids.CreateComment != "" {
+			cl.docIDs.CreateComment = ids.CreateComment
+		}
+		if ids.DeleteComment != "" {
+			cl.docIDs.DeleteComment = ids.DeleteComment
+		}
 	}
 }
 
 // NewClient creates a client authenticated with the given Facebook session cookies and DTSG token.
 func NewClient(cookies map[string]string, fbDTSG string, opts ...Option) *Client {
 	c := &Client{
-		http:      http.DefaultClient,
-		cookies:   cookies,
-		fbDTSG:    fbDTSG,
-		userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
-		docIDs:    DefaultDocIDs,
+		http:       http.DefaultClient,
+		cookies:    cookies,
+		fbDTSG:     fbDTSG,
+		userAgent:  "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+		docIDs:     DefaultDocIDs,
+		retryDelay: 500 * time.Millisecond,
 	}
 	for _, o := range opts {
 		o(c)
@@ -117,6 +136,9 @@ func (c *Client) doRequest(ctx context.Context, docID string, variables map[stri
 		"doc_id":    {docID},
 		"variables": {string(varsJSON)},
 	}
+	if c.lsd != "" {
+		form.Set("lsd", c.lsd)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", graphqlURL, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -126,6 +148,9 @@ func (c *Client) doRequest(ctx context.Context, docID string, variables map[stri
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Origin", "https://www.facebook.com")
+	if c.lsd != "" {
+		req.Header.Set("X-FB-LSD", c.lsd)
+	}
 	if friendlyName != "" {
 		req.Header.Set("X-FB-Friendly-Name", friendlyName)
 	}
