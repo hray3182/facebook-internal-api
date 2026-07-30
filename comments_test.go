@@ -74,12 +74,74 @@ func TestParseCommentsResponse_detects_facebook_ar_error(t *testing.T) {
 	if !errors.Is(err, ErrGraphQLResponse) {
 		t.Fatalf("error = %v, want ErrGraphQLResponse", err)
 	}
+	if errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("error = %v, must not be ErrUnauthenticated (1357004 is transient)", err)
+	}
 	var ge *GraphQLError
 	if !errors.As(err, &ge) {
 		t.Fatalf("error type = %T, want *GraphQLError", err)
 	}
 	if ge.Code != 1357004 {
 		t.Fatalf("Code = %d, want 1357004", ge.Code)
+	}
+}
+
+func TestParseCommentsResponse_detects_unauthenticated_login_required(t *testing.T) {
+	body := `{"errors":[{"message":"Login required","severity":"CRITICAL","code":1357001,"summary":"Log in to continue","description":"Please log in to your account.","is_silent":false}],"extensions":{}}`
+
+	_, _, _, err := parseCommentsResponse(body)
+
+	if !errors.Is(err, ErrGraphQLResponse) {
+		t.Fatalf("error = %v, want ErrGraphQLResponse", err)
+	}
+	if !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("error = %v, want ErrUnauthenticated", err)
+	}
+	var ge *GraphQLError
+	if !errors.As(err, &ge) {
+		t.Fatalf("error type = %T, want *GraphQLError", err)
+	}
+	if ge.Code != 1357001 {
+		t.Fatalf("Code = %d, want 1357001", ge.Code)
+	}
+}
+
+func TestListComments_does_not_retry_unauthenticated(t *testing.T) {
+	transport := &sequenceRoundTripper{
+		t: t,
+		responses: []string{
+			`{"errors":[{"message":"Login required","severity":"CRITICAL","code":1357001,"summary":"Log in to continue","description":"Please log in to your account.","is_silent":false}],"extensions":{}}`,
+		},
+	}
+	client := NewClient(
+		map[string]string{"c_user": "123", "xs": "session"},
+		"token",
+		WithHTTPClient(&http.Client{Transport: transport}),
+	)
+	client.retryDelay = 0
+
+	_, err := Collect(client.ListComments(context.Background(), FeedbackID("36674113645566126")))
+
+	if !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("ListComments() error = %v, want ErrUnauthenticated", err)
+	}
+	if transport.calls != 1 {
+		t.Fatalf("RoundTrip calls = %d, want 1 (no retry)", transport.calls)
+	}
+}
+
+func TestListComments_maps_http_401_to_unauthenticated(t *testing.T) {
+	transport := &statusRoundTripper{t: t, statusCode: http.StatusUnauthorized, body: "unauthorized"}
+	client := NewClient(
+		map[string]string{"c_user": "123", "xs": "session"},
+		"token",
+		WithHTTPClient(&http.Client{Transport: transport}),
+	)
+
+	_, err := Collect(client.ListComments(context.Background(), FeedbackID("36674113645566126")))
+
+	if !errors.Is(err, ErrUnauthenticated) {
+		t.Fatalf("ListComments() error = %v, want ErrUnauthenticated", err)
 	}
 }
 
@@ -305,6 +367,23 @@ func (t *sequenceRoundTripper) RoundTrip(req *http.Request) (*http.Response, err
 		Header:        make(http.Header),
 		Body:          io.NopCloser(strings.NewReader(body)),
 		ContentLength: int64(len(body)),
+		Request:       req,
+	}, nil
+}
+
+type statusRoundTripper struct {
+	t          *testing.T
+	statusCode int
+	body       string
+}
+
+func (t *statusRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	return &http.Response{
+		StatusCode:    t.statusCode,
+		Status:        http.StatusText(t.statusCode),
+		Header:        make(http.Header),
+		Body:          io.NopCloser(strings.NewReader(t.body)),
+		ContentLength: int64(len(t.body)),
 		Request:       req,
 	}, nil
 }

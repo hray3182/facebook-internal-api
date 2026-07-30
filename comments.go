@@ -17,6 +17,14 @@ const (
 // ErrGraphQLResponse marks a Facebook GraphQL response that cannot be trusted as a complete result.
 var ErrGraphQLResponse = errors.New("facebook graphql response error")
 
+// ErrUnauthenticated marks a Facebook session that is missing, expired, or otherwise not logged in.
+// Callers can errors.Is against this to prompt re-login. GraphQL code 1357001 ("Log in to continue")
+// and HTTP 401/403 responses match this sentinel.
+var ErrUnauthenticated = errors.New("facebook session unauthenticated or expired")
+
+// facebookUnauthenticatedCode is returned by Facebook when the session requires login.
+const facebookUnauthenticatedCode = 1357001
+
 // GraphQLError contains structured metadata from Facebook's GraphQL / AJAX error payload.
 type GraphQLError struct {
 	Message     string
@@ -34,7 +42,10 @@ func (e *GraphQLError) Error() string {
 }
 
 func (e *GraphQLError) Is(target error) bool {
-	return target == ErrGraphQLResponse
+	if target == ErrGraphQLResponse {
+		return true
+	}
+	return target == ErrUnauthenticated && e.Code == facebookUnauthenticatedCode
 }
 
 // ListComments returns a paginated sequence of comments for a post.
@@ -209,7 +220,7 @@ func (c *Client) fetchCommentsPageWithRetry(ctx context.Context, feedbackID, cur
 		if err == nil {
 			return comments, next, nil
 		}
-		if !errors.Is(err, ErrGraphQLResponse) {
+		if errors.Is(err, ErrUnauthenticated) || !errors.Is(err, ErrGraphQLResponse) {
 			return nil, "", err
 		}
 		lastErr = err
@@ -242,7 +253,7 @@ func (c *Client) fetchCommentsDialogWithRetry(ctx context.Context, storyID strin
 		if err == nil {
 			return comments, cursor, postInfo, nil
 		}
-		if !errors.Is(err, ErrGraphQLResponse) {
+		if errors.Is(err, ErrUnauthenticated) || !errors.Is(err, ErrGraphQLResponse) {
 			return nil, "", nil, err
 		}
 		lastErr = err

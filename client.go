@@ -252,6 +252,9 @@ func (c *Client) doRequest(ctx context.Context, docID string, variables map[stri
 		if len(preview) > 200 {
 			preview = preview[:200]
 		}
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			return "", fmt.Errorf("HTTP %d: %w: %s", resp.StatusCode, ErrUnauthenticated, preview)
+		}
 		return "", fmt.Errorf("HTTP %d: %s", resp.StatusCode, preview)
 	}
 
