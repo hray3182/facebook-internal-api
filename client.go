@@ -19,7 +19,8 @@ const graphqlURL = "https://www.facebook.com/api/graphql/"
 type DocIDs struct {
 	Posts         string // ProfileCometTimelineFeedRefetchQuery
 	Groups        string // GroupsCometFeedRegularStoriesPaginationQuery
-	Comments      string // CometSinglePostDialogContentQuery (was CommentsListComponentsPaginationQuery)
+	Comments      string // CometSinglePostDialogContentQuery (initial comment load)
+	CommentsPage  string // CommentsListComponentsPaginationQuery (optional; remaining pages)
 	Replies       string // Depth1CommentsListPaginationQuery
 	Photos        string // CometPhotoRootContentQuery
 	CreateComment string // useCometUFICreateCommentMutation
@@ -29,10 +30,12 @@ type DocIDs struct {
 // DefaultDocIDs contains the doc_id values known to work as of 2026-07.
 // Comments switched to CometSinglePostDialogContentQuery after FB stopped serving
 // CommentsListComponentsPaginationQuery for permalink comment loads.
+// CommentsPage stays empty until a working pagination doc_id is captured again.
 var DefaultDocIDs = DocIDs{
 	Posts:         "25430544756617998",
 	Groups:        "27559756597026523",
 	Comments:      "27808862888770037",
+	CommentsPage:  "",
 	Replies:       "26570577339199586",
 	Photos:        "25998240949874449",
 	CreateComment: "27734094336250655",
@@ -80,6 +83,9 @@ func WithDocIDs(ids DocIDs) Option {
 		}
 		if ids.Comments != "" {
 			cl.docIDs.Comments = ids.Comments
+		}
+		if ids.CommentsPage != "" {
+			cl.docIDs.CommentsPage = ids.CommentsPage
 		}
 		if ids.Replies != "" {
 			cl.docIDs.Replies = ids.Replies
@@ -146,6 +152,36 @@ func PostIDFromFeedback(feedbackID string) (string, error) {
 // Format: base64("S:_I{authorID}:VK:{postID}").
 func StoryID(authorID, postID string) string {
 	return base64.StdEncoding.EncodeToString([]byte("S:_I" + authorID + ":VK:" + postID))
+}
+
+// IsStoryID reports whether id looks like a Comet story id (base64 of "S:_…").
+func IsStoryID(id string) bool {
+	raw, err := base64.StdEncoding.DecodeString(id)
+	if err != nil {
+		return false
+	}
+	return strings.HasPrefix(string(raw), "S:_")
+}
+
+// AuthorPostFromStory decodes a plain StoryID("S:_I{author}:VK:{post}") into parts.
+// Encrypted / opaque story ids (still starting with S:_) return an error.
+func AuthorPostFromStory(storyID string) (authorID, postID string, err error) {
+	raw, err := base64.StdEncoding.DecodeString(storyID)
+	if err != nil {
+		return "", "", fmt.Errorf("decode story id: %w", err)
+	}
+	s := string(raw)
+	const prefix = "S:_I"
+	const mid = ":VK:"
+	if !strings.HasPrefix(s, prefix) {
+		return "", "", fmt.Errorf("story id missing %q prefix", prefix)
+	}
+	rest := strings.TrimPrefix(s, prefix)
+	authorID, postID, ok := strings.Cut(rest, mid)
+	if !ok || authorID == "" || postID == "" {
+		return "", "", fmt.Errorf("story id is opaque or malformed")
+	}
+	return authorID, postID, nil
 }
 
 func (c *Client) doRequest(ctx context.Context, docID string, variables map[string]any, friendlyName string) (string, error) {

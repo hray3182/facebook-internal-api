@@ -50,4 +50,5 @@ Suggested manual actions:
 1. Open a post → click comments / sort / view more
 2. Expand a reply thread
 3. Open a photo in the viewer
-4. (optional) create then delete a throwaway comment for mutation doc_ids
+4. Scroll / click「查看更多留言」to capture `CommentsListComponentsPaginationQuery` → `CommentsPage`
+5. (optional) create then delete a throwaway comment for mutation doc_ids

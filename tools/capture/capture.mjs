@@ -21,7 +21,7 @@ const FRIENDLY_TO_FIELD = {
   ProfileCometTimelineFeedRefetchQuery: 'Posts',
   GroupsCometFeedRegularStoriesPaginationQuery: 'Groups',
   CometSinglePostDialogContentQuery: 'Comments',
-  CommentsListComponentsPaginationQuery: 'Comments', // legacy
+  CommentsListComponentsPaginationQuery: 'CommentsPage', // optional pagination after dialog
   Depth1CommentsListPaginationQuery: 'Replies',
   CometPhotoRootContentQuery: 'Photos',
   useCometUFICreateCommentMutation: 'CreateComment',

@@ -66,6 +66,91 @@ func TestParseCommentsResponse_returns_error_when_comments_block_missing(t *test
 	}
 }
 
+func TestParseCommentsResponse_detects_facebook_ar_error(t *testing.T) {
+	body := `for (;;);{"__ar":1,"error":1357004,"errorSummary":"Sorry, something went wrong","errorDescription":"Please try closing and re-opening your browser window.","isNotCritical":1}`
+
+	_, _, _, err := parseCommentsResponse(body)
+
+	if !errors.Is(err, ErrGraphQLResponse) {
+		t.Fatalf("error = %v, want ErrGraphQLResponse", err)
+	}
+	var ge *GraphQLError
+	if !errors.As(err, &ge) {
+		t.Fatalf("error type = %T, want *GraphQLError", err)
+	}
+	if ge.Code != 1357004 {
+		t.Fatalf("Code = %d, want 1357004", ge.Code)
+	}
+}
+
+func TestListComments_reports_incomplete_when_more_pages_without_CommentsPage(t *testing.T) {
+	transport := &sequenceRoundTripper{
+		t: t,
+		responses: []string{
+			dialogCommentsResponse(true),
+		},
+	}
+	client := NewClient(
+		map[string]string{"c_user": "123", "xs": "session"},
+		"token",
+		WithHTTPClient(&http.Client{Transport: transport}),
+	)
+	client.retryDelay = 0
+
+	comments, err := Collect(client.ListComments(context.Background(), StoryID("123", "36674113645566126")))
+	if !errors.Is(err, ErrIncompleteComments) {
+		t.Fatalf("error = %v, want ErrIncompleteComments", err)
+	}
+	if len(comments) != 1 {
+		t.Fatalf("len(comments) = %d, want 1 (first page still returned)", len(comments))
+	}
+}
+
+func TestListComments_paginates_when_CommentsPage_configured(t *testing.T) {
+	transport := &sequenceRoundTripper{
+		t: t,
+		responses: []string{
+			dialogCommentsResponse(true),
+			commentsGraphQLResponse(),
+		},
+	}
+	client := NewClient(
+		map[string]string{"c_user": "123", "xs": "session"},
+		"token",
+		WithHTTPClient(&http.Client{Transport: transport}),
+		WithDocIDs(DocIDs{CommentsPage: "page-doc"}),
+	)
+	client.retryDelay = 0
+
+	comments, err := Collect(client.ListComments(context.Background(), StoryID("123", "36674113645566126")))
+	if err != nil {
+		t.Fatalf("ListComments() error = %v", err)
+	}
+	if transport.calls != 2 {
+		t.Fatalf("RoundTrip calls = %d, want 2", transport.calls)
+	}
+	if len(comments) != 2 {
+		t.Fatalf("len(comments) = %d, want 2", len(comments))
+	}
+}
+
+func TestStoryID_roundtrip(t *testing.T) {
+	id := StoryID("100007461752812", "1722750337980889")
+	if !IsStoryID(id) {
+		t.Fatalf("IsStoryID(%q) = false", id)
+	}
+	author, post, err := AuthorPostFromStory(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if author != "100007461752812" || post != "1722750337980889" {
+		t.Fatalf("got author=%q post=%q", author, post)
+	}
+	if IsStoryID(FeedbackID("1722750337980889")) {
+		t.Fatal("FeedbackID should not be IsStoryID")
+	}
+}
+
 func TestListComments_retries_when_graphql_error_hides_comments(t *testing.T) {
 	// Given
 	transport := &sequenceRoundTripper{
@@ -246,7 +331,15 @@ func (t *sequenceRoundTripper) RoundTrip(req *http.Request) (*http.Response, err
 }
 
 func commentsGraphQLResponse() string {
-	return `{"data":{"node":{"__typename":"Feedback","comment_rendering_instance_for_feed_location":{"comments":{"edges":[{"node":{"id":"c1","author":{"id":"u1","name":"Alice"},"body":{"text":"hello"},"feedback":{"id":"comment-feedback","expansion_info":{"expansion_token":"token"},"reactors":{"count_reduced":"0"}}}}],"page_info":{"end_cursor":null}}}}}}`
+	return `{"data":{"node":{"__typename":"Feedback","comment_rendering_instance_for_feed_location":{"comments":{"edges":[{"node":{"id":"c1","author":{"id":"u1","name":"Alice"},"body":{"text":"hello"},"feedback":{"id":"comment-feedback","expansion_info":{"expansion_token":"token"},"reactors":{"count_reduced":"0"}}}}],"page_info":{"end_cursor":null,"has_next_page":false}}}}}}`
+}
+
+func dialogCommentsResponse(hasNext bool) string {
+	pageInfo := `{"end_cursor":null,"has_next_page":false}`
+	if hasNext {
+		pageInfo = `{"end_cursor":"cursor-1","has_next_page":true}`
+	}
+	return `{"data":{"node_v2":{"id":"story-1","comet_sections":{"feedback":{"story":{"story_ufi_container":{"story":{"feedback_context":{"feedback_target_with_context":{"comment_list_renderer":{"feedback":{"comment_rendering_instance_for_feed_location":{"comments":{"edges":[{"node":{"id":"c-dialog","author":{"id":"u1","name":"Alice"},"body":{"text":"dialog-hello"},"feedback":{"id":"comment-feedback","expansion_info":{"expansion_token":"token"},"reactors":{"count_reduced":"0"}}}}],"page_info":` + pageInfo + `}}}}}}}}}}}}}}`
 }
 
 type captureRoundTripper struct {

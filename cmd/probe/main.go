@@ -187,14 +187,22 @@ func probeGroups(parent context.Context, c *fbia.Client, groupID string, d time.
 }
 
 func probeComments(parent context.Context, c *fbia.Client, postID string, d time.Duration) []probeResult {
-	feedbackID := fbia.FeedbackID(postID)
+	// Prefer a real StoryID from the caller's post when possible; FeedbackID
+	// synthesis only works for posts authored by c_user.
+	id := fbia.FeedbackID(postID)
 	var out []probeResult
 
 	{
 		ctx, cancel := withTimeout(parent, d)
 		var first *fbia.Comment
-		for comment, err := range c.ListComments(ctx, feedbackID) {
+		var n int
+		var incomplete error
+		for comment, err := range c.ListComments(ctx, id) {
 			if err != nil {
+				if errors.Is(err, fbia.ErrIncompleteComments) {
+					incomplete = err
+					break
+				}
 				out = append(out, fail("Comments", fbia.DefaultDocIDs.Comments, err))
 				cancel()
 				out = append(out,
@@ -203,16 +211,26 @@ func probeComments(parent context.Context, c *fbia.Client, postID string, d time
 				)
 				return out
 			}
+			n++
 			cp := comment
-			first = &cp
-			break
+			if first == nil {
+				first = &cp
+			}
 		}
 		cancel()
 		if first == nil {
-			out = append(out, ok("Comments", fbia.DefaultDocIDs.Comments, "request ok, 0 comments"))
+			detail := "request ok, 0 comments"
+			if incomplete != nil {
+				detail = incomplete.Error()
+			}
+			out = append(out, ok("Comments", fbia.DefaultDocIDs.Comments, detail))
 			out = append(out, skipped("Replies", fbia.DefaultDocIDs.Replies, "no comments to probe"))
 		} else {
-			out = append(out, ok("Comments", fbia.DefaultDocIDs.Comments, fmt.Sprintf("got comment %s", first.CommentID)))
+			detail := fmt.Sprintf("got %d comment(s), first=%s", n, first.CommentID)
+			if incomplete != nil {
+				detail += " (incomplete pages)"
+			}
+			out = append(out, ok("Comments", fbia.DefaultDocIDs.Comments, detail))
 			ctx, cancel := withTimeout(parent, d)
 			replies, err := c.FetchReplies(ctx, *first)
 			cancel()
@@ -226,7 +244,7 @@ func probeComments(parent context.Context, c *fbia.Client, postID string, d time
 
 	{
 		ctx, cancel := withTimeout(parent, d)
-		info, err := c.FetchPostInfo(ctx, feedbackID)
+		info, err := c.FetchPostInfo(ctx, id)
 		cancel()
 		if err != nil {
 			out = append(out, fail("Photos", fbia.DefaultDocIDs.Photos, err))

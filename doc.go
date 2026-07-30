@@ -11,7 +11,15 @@
 //	    "fb_dtsg_token",
 //	)
 //
-//	// Range over comments
+//	// Prefer StoryID from feed posts when listing comments
+//	for comment, err := range client.ListComments(ctx, post.StoryID) {
+//	    if err != nil {
+//	        log.Fatal(err)
+//	    }
+//	    fmt.Println(comment.Text)
+//	}
+//
+//	// Legacy callers may still pass FeedbackID("POST_ID") (own posts only)
 //	for comment, err := range client.ListComments(ctx, fbia.FeedbackID("POST_ID")) {
 //	    if err != nil {
 //	        log.Fatal(err)
