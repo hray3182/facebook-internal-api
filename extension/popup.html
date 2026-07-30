@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FBIA Cookie Exporter</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>FBIA Cookie Exporter</h1>
+    <p class="subtitle">for facebook-internal-api</p>
+
+    <div class="status-section">
+      <div class="status-row">
+        <span class="label">登入狀態：</span>
+        <span id="login-status" class="status-badge">檢查中...</span>
+      </div>
+      <div class="status-row">
+        <span class="label">用戶名稱：</span>
+        <span id="user-name">-</span>
+      </div>
+      <div class="status-row">
+        <span class="label">用戶 ID：</span>
+        <span id="user-id">-</span>
+      </div>
+      <div class="status-row">
+        <span class="label">Cookies：</span>
+        <span id="cookie-count">-</span>
+      </div>
+      <div class="status-row">
+        <span class="label">fb_dtsg：</span>
+        <span id="dtsg-status" class="status-badge checking">-</span>
+      </div>
+      <div class="status-row">
+        <span class="label">lsd：</span>
+        <span id="lsd-status" class="status-badge checking">-</span>
+      </div>
+    </div>
+
+    <div class="section">
+      <h2>匯出</h2>
+      <p class="hint">請先在瀏覽器開啟並登入 facebook.com，再匯出。auth.json 可供 probe / capture 使用。</p>
+      <button id="download-btn" class="btn btn-primary" disabled>
+        下載 cookies.json
+      </button>
+      <button id="download-auth-btn" class="btn btn-auth" disabled>
+        下載 auth.json（含 fb_dtsg + lsd）
+      </button>
+    </div>
+
+    <div id="result" class="result hidden"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

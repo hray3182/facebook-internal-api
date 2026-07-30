@@ -3,6 +3,7 @@ package fbia
 // Post represents a Facebook post from a page timeline or group feed.
 type Post struct {
 	PostID       string  `json:"post_id"`
+	StoryID      string  `json:"story_id,omitempty"`
 	FeedbackID   string  `json:"feedback_id,omitempty"`
 	Text         string  `json:"text,omitempty"`
 	Permalink    string  `json:"permalink,omitempty"`

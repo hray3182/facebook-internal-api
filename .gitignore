@@ -2,3 +2,11 @@
 *.test
 *.out
 .env
+auth.json
+cookies.json
+tools/capture/node_modules/
+tools/capture/docids.json
+tools/capture/docids-*.json
+tools/capture/graphql-*.json
+tools/capture/package-lock.json
+tools/capture/.capture-done

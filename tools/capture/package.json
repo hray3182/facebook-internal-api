@@ -1,0 +1,13 @@
+{
+  "name": "fbia-docid-capture",
+  "private": true,
+  "type": "module",
+  "description": "Capture Facebook GraphQL doc_ids via Playwright with cookie injection",
+  "scripts": {
+    "capture": "node capture.mjs",
+    "install-browsers": "playwright install chromium"
+  },
+  "dependencies": {
+    "playwright": "^1.54.1"
+  }
+}

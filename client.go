@@ -19,7 +19,7 @@ const graphqlURL = "https://www.facebook.com/api/graphql/"
 type DocIDs struct {
 	Posts         string // ProfileCometTimelineFeedRefetchQuery
 	Groups        string // GroupsCometFeedRegularStoriesPaginationQuery
-	Comments      string // CommentsListComponentsPaginationQuery
+	Comments      string // CometSinglePostDialogContentQuery (was CommentsListComponentsPaginationQuery)
 	Replies       string // Depth1CommentsListPaginationQuery
 	Photos        string // CometPhotoRootContentQuery
 	CreateComment string // useCometUFICreateCommentMutation
@@ -27,14 +27,16 @@ type DocIDs struct {
 }
 
 // DefaultDocIDs contains the doc_id values known to work as of 2026-07.
+// Comments switched to CometSinglePostDialogContentQuery after FB stopped serving
+// CommentsListComponentsPaginationQuery for permalink comment loads.
 var DefaultDocIDs = DocIDs{
 	Posts:         "25430544756617998",
-	Groups:        "25716860671307636",
-	Comments:      "25550760954572974",
+	Groups:        "27559756597026523",
+	Comments:      "27808862888770037",
 	Replies:       "26570577339199586",
-	Photos:        "26168653472729001",
-	CreateComment: "27998998286374727",
-	DeleteComment: "27050675991271097",
+	Photos:        "25998240949874449",
+	CreateComment: "27734094336250655",
+	DeleteComment: "27386493047638332",
 }
 
 // Client talks to Facebook's internal GraphQL API.
@@ -117,9 +119,33 @@ func (c *Client) userID() string {
 	return "0"
 }
 
-// FeedbackID converts a post ID to the base64-encoded feedback ID that the comment API expects.
+// FeedbackID converts a post ID to the base64-encoded feedback ID that comment mutations expect.
 func FeedbackID(postID string) string {
 	return base64.StdEncoding.EncodeToString([]byte("feedback:" + postID))
+}
+
+// PostIDFromFeedback decodes a FeedbackID back to the raw post ID.
+func PostIDFromFeedback(feedbackID string) (string, error) {
+	raw, err := base64.StdEncoding.DecodeString(feedbackID)
+	if err != nil {
+		return "", fmt.Errorf("decode feedback id: %w", err)
+	}
+	const prefix = "feedback:"
+	s := string(raw)
+	if !strings.HasPrefix(s, prefix) {
+		return "", fmt.Errorf("feedback id missing %q prefix", prefix)
+	}
+	postID := strings.TrimPrefix(s, prefix)
+	if postID == "" {
+		return "", fmt.Errorf("feedback id has empty post id")
+	}
+	return postID, nil
+}
+
+// StoryID builds the Comet story id used by CometSinglePostDialogContentQuery.
+// Format: base64("S:_I{authorID}:VK:{postID}").
+func StoryID(authorID, postID string) string {
+	return base64.StdEncoding.EncodeToString([]byte("S:_I" + authorID + ":VK:" + postID))
 }
 
 func (c *Client) doRequest(ctx context.Context, docID string, variables map[string]any, friendlyName string) (string, error) {

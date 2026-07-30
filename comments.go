@@ -5,10 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"iter"
+	"strings"
 	"time"
 )
 
-const commentsMaxAttempts = 3
+const (
+	commentsMaxAttempts        = 3
+	commentsDialogFriendlyName = "CometSinglePostDialogContentQuery"
+)
 
 // ErrGraphQLResponse marks a Facebook GraphQL response that cannot be trusted as a complete result.
 var ErrGraphQLResponse = errors.New("facebook graphql response error")
@@ -33,59 +37,46 @@ func (e *GraphQLError) Is(target error) bool {
 	return target == ErrGraphQLResponse
 }
 
-// ListComments returns a sequence of comments for a post.
-// feedbackID is the base64-encoded feedback ID (use FeedbackID to convert from a post ID).
-func (c *Client) ListComments(ctx context.Context, feedbackID string) iter.Seq2[Comment, error] {
+// ListComments returns comments for a post.
+//
+// id may be either:
+//   - FeedbackID("postID") (legacy / joaimy callers), or
+//   - a Comet story ID (base64 of "S:_I{author}:VK:{postID}"), preferred
+//
+// Prefer Post.StoryID from ListGroupPosts / ListPosts when available. When a
+// FeedbackID is given, the story ID is synthesized with the logged-in c_user as
+// author, which works for posts authored by that user.
+func (c *Client) ListComments(ctx context.Context, id string) iter.Seq2[Comment, error] {
 	return func(yield func(Comment, error) bool) {
-		var cursor string
+		storyID, err := c.resolveStoryID(id)
+		if err != nil {
+			yield(Comment{}, err)
+			return
+		}
 
-		for {
-			variables := map[string]any{
-				"commentsAfterCount":  -1,
-				"commentsAfterCursor": nilIfEmpty(cursor),
-				"commentsIntentToken": "REVERSE_CHRONOLOGICAL_UNFILTERED_INTENT_V1",
-				"feedLocation":        "DEDICATED_COMMENTING_SURFACE",
-				"focusCommentID":      nil,
-				"scale":               2,
-				"useDefaultActor":     false,
-				"id":                  feedbackID,
-			}
-
-			comments, nextCursor, _, err := c.fetchCommentsPageWithRetry(ctx, variables)
-			if err != nil {
-				yield(Comment{}, err)
+		comments, _, err := c.fetchCommentsDialogWithRetry(ctx, storyID)
+		if err != nil {
+			yield(Comment{}, err)
+			return
+		}
+		for _, comment := range comments {
+			if !yield(comment, nil) {
 				return
 			}
-
-			for _, comment := range comments {
-				if !yield(comment, nil) {
-					return
-				}
-			}
-
-			if nextCursor == "" {
-				return
-			}
-			cursor = nextCursor
 		}
 	}
 }
 
-// FetchPostInfo extracts post metadata (story ID, first media ID) from the comment API.
+// FetchPostInfo extracts post metadata (story ID, first media ID) from the permalink dialog query.
 // Useful for obtaining the startNodeID needed by ListImages.
-func (c *Client) FetchPostInfo(ctx context.Context, feedbackID string) (*PostInfo, error) {
-	variables := map[string]any{
-		"commentsAfterCount":  -1,
-		"commentsAfterCursor": nil,
-		"commentsIntentToken": "REVERSE_CHRONOLOGICAL_UNFILTERED_INTENT_V1",
-		"feedLocation":        "DEDICATED_COMMENTING_SURFACE",
-		"focusCommentID":      nil,
-		"scale":               2,
-		"useDefaultActor":     false,
-		"id":                  feedbackID,
+//
+// id may be a FeedbackID or a Comet story ID (see ListComments).
+func (c *Client) FetchPostInfo(ctx context.Context, id string) (*PostInfo, error) {
+	storyID, err := c.resolveStoryID(id)
+	if err != nil {
+		return nil, err
 	}
-
-	_, _, postInfo, err := c.fetchCommentsPageWithRetry(ctx, variables)
+	_, postInfo, err := c.fetchCommentsDialogWithRetry(ctx, storyID)
 	return postInfo, err
 }
 
@@ -109,38 +100,67 @@ func (c *Client) FetchReplies(ctx context.Context, comment Comment) ([]Reply, er
 	return parseRepliesResponse(body)
 }
 
-func (c *Client) fetchCommentsPageWithRetry(ctx context.Context, variables map[string]any) ([]Comment, string, *PostInfo, error) {
+func (c *Client) resolveStoryID(id string) (string, error) {
+	if strings.HasPrefix(id, "Uzpf") {
+		return id, nil
+	}
+	postID, err := PostIDFromFeedback(id)
+	if err != nil {
+		if id != "" {
+			return id, nil
+		}
+		return "", fmt.Errorf("resolve story id: %w", err)
+	}
+	authorID := c.userID()
+	if authorID == "" || authorID == "0" {
+		return "", fmt.Errorf("resolve story id: missing c_user cookie for author")
+	}
+	return StoryID(authorID, postID), nil
+}
+
+func (c *Client) fetchCommentsDialogWithRetry(ctx context.Context, storyID string) ([]Comment, *PostInfo, error) {
 	var lastErr error
 	for attempt := 1; attempt <= commentsMaxAttempts; attempt++ {
-		comments, nextCursor, postInfo, err := c.fetchCommentsPage(ctx, variables)
+		comments, postInfo, err := c.fetchCommentsDialog(ctx, storyID)
 		if err == nil {
-			return comments, nextCursor, postInfo, nil
+			return comments, postInfo, nil
 		}
 		if !errors.Is(err, ErrGraphQLResponse) {
-			return nil, "", nil, err
+			return nil, nil, err
 		}
 		lastErr = err
 		if attempt == commentsMaxAttempts {
 			break
 		}
 		if err := c.waitBeforeCommentsRetry(ctx, attempt); err != nil {
-			return nil, "", nil, fmt.Errorf("wait before retry comments: %w", err)
+			return nil, nil, fmt.Errorf("wait before retry comments: %w", err)
 		}
 	}
-	return nil, "", nil, fmt.Errorf("fetch comments page after %d attempts: %w", commentsMaxAttempts, lastErr)
+	return nil, nil, fmt.Errorf("fetch comments dialog after %d attempts: %w", commentsMaxAttempts, lastErr)
 }
 
-func (c *Client) fetchCommentsPage(ctx context.Context, variables map[string]any) ([]Comment, string, *PostInfo, error) {
-	body, err := c.doRequest(ctx, c.docIDs.Comments, variables, "CommentsListComponentsPaginationQuery")
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("fetch comments page: %w", err)
+func (c *Client) fetchCommentsDialog(ctx context.Context, storyID string) ([]Comment, *PostInfo, error) {
+	variables := map[string]any{
+		"feedbackSource":                2,
+		"feedLocation":                  "POST_PERMALINK_DIALOG",
+		"focusCommentID":                nil,
+		"privacySelectorRenderLocation": "COMET_STREAM",
+		"renderLocation":                "permalink",
+		"scale":                         1,
+		"shouldChangeNodeFieldName":     true,
+		"storyID":                       storyID,
+		"useDefaultActor":               false,
 	}
 
-	comments, nextCursor, postInfo, err := parseCommentsResponse(body)
+	body, err := c.doRequest(ctx, c.docIDs.Comments, variables, commentsDialogFriendlyName)
 	if err != nil {
-		return nil, "", nil, fmt.Errorf("parse comments response: %w", err)
+		return nil, nil, fmt.Errorf("comments dialog: %w", err)
 	}
-	return comments, nextCursor, postInfo, nil
+	comments, _, postInfo, err := parseCommentsResponse(body)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parse comments dialog: %w", err)
+	}
+	return comments, postInfo, nil
 }
 
 func (c *Client) waitBeforeCommentsRetry(ctx context.Context, attempt int) error {
@@ -166,15 +186,17 @@ func parseCommentsResponse(body string) ([]Comment, string, *PostInfo, error) {
 		return nil, "", nil, fmt.Errorf("parse comments json: %w", err)
 	}
 
-	commentsBlock := jsonNav(parsed,
-		"data", "node", "comment_rendering_instance_for_feed_location", "comments")
+	commentsBlock := findCommentsBlock(parsed)
 	if commentsBlock == nil {
 		return nil, "", nil, commentsResponseError(parsed)
 	}
 
 	var postInfo *PostInfo
-	var comments []Comment
+	if node := jsonNav(parsed, "data", "node_v2"); node != nil {
+		postInfo = extractDialogPostInfo(node)
+	}
 
+	var comments []Comment
 	for _, e := range jsonSlice(commentsBlock, "edges") {
 		edge, _ := e.(map[string]any)
 		node := jsonMap(edge, "node")
@@ -192,8 +214,13 @@ func parseCommentsResponse(body string) ([]Comment, string, *PostInfo, error) {
 		reactors := jsonMap(fb, "reactors")
 		author := jsonMap(node, "author")
 
+		commentID := jsonStr(node, "id")
+		if commentID == "" {
+			commentID = jsonStr(node, "legacy_fbid")
+		}
+
 		comments = append(comments, Comment{
-			CommentID:      jsonStr(node, "id"),
+			CommentID:      commentID,
 			AuthorID:       jsonStr(author, "id"),
 			AuthorName:     jsonStr(author, "name"),
 			Text:           jsonStr(bodyMap, "text"),
@@ -203,8 +230,48 @@ func parseCommentsResponse(body string) ([]Comment, string, *PostInfo, error) {
 		})
 	}
 
-	nextCursor := jsonStr(jsonMap(commentsBlock, "page_info"), "end_cursor")
+	pageInfo := jsonMap(commentsBlock, "page_info")
+	nextCursor := jsonStr(pageInfo, "end_cursor")
+	if pageInfo["has_next_page"] != true {
+		nextCursor = ""
+	}
 	return comments, nextCursor, postInfo, nil
+}
+
+func findCommentsBlock(parsed map[string]any) map[string]any {
+	// Legacy CommentsListComponentsPaginationQuery shape.
+	if block := jsonNav(parsed,
+		"data", "node", "comment_rendering_instance_for_feed_location", "comments"); block != nil {
+		return block
+	}
+	// CometSinglePostDialogContentQuery shape.
+	return jsonNav(parsed,
+		"data", "node_v2", "comet_sections", "feedback", "story", "story_ufi_container", "story",
+		"feedback_context", "feedback_target_with_context", "comment_list_renderer", "feedback",
+		"comment_rendering_instance_for_feed_location", "comments")
+}
+
+func extractDialogPostInfo(node map[string]any) *PostInfo {
+	info := &PostInfo{
+		StoryID: jsonStr(node, "id"),
+	}
+	for _, raw := range jsonSlice(node, "attachments") {
+		att, _ := raw.(map[string]any)
+		media := jsonMap(jsonMap(att, "styles"), "attachment")
+		if media == nil {
+			media = jsonMap(att, "media")
+		} else {
+			media = jsonMap(media, "media")
+		}
+		if id := jsonStr(media, "id"); id != "" {
+			info.MediaID = id
+			break
+		}
+	}
+	if info.StoryID == "" && info.MediaID == "" {
+		return nil
+	}
+	return info
 }
 
 func commentsResponseError(parsed map[string]any) error {

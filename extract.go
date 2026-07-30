@@ -9,9 +9,14 @@ func extractPost(node map[string]any) Post {
 	}
 
 	fb := jsonMap(node, "feedback")
+	storyID := jsonStr(node, "id")
+	if !strings.HasPrefix(storyID, "Uzpf") {
+		storyID = ""
+	}
 
 	return Post{
 		PostID:       postID,
+		StoryID:      storyID,
 		FeedbackID:   jsonStr(fb, "id"),
 		Text:         extractMessage(node),
 		Permalink:    extractPermalink(node),
