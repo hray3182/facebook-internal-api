@@ -83,11 +83,12 @@ func TestParseCommentsResponse_detects_facebook_ar_error(t *testing.T) {
 	}
 }
 
-func TestListComments_reports_incomplete_when_more_pages_without_CommentsPage(t *testing.T) {
+func TestListComments_paginates_across_pages(t *testing.T) {
 	transport := &sequenceRoundTripper{
 		t: t,
 		responses: []string{
-			dialogCommentsResponse(true),
+			commentsGraphQLResponseWithCursor("cursor-1", "page-1"),
+			commentsGraphQLResponseWithCursor("", "page-2"),
 		},
 	}
 	client := NewClient(
@@ -97,32 +98,7 @@ func TestListComments_reports_incomplete_when_more_pages_without_CommentsPage(t 
 	)
 	client.retryDelay = 0
 
-	comments, err := Collect(client.ListComments(context.Background(), StoryID("123", "36674113645566126")))
-	if !errors.Is(err, ErrIncompleteComments) {
-		t.Fatalf("error = %v, want ErrIncompleteComments", err)
-	}
-	if len(comments) != 1 {
-		t.Fatalf("len(comments) = %d, want 1 (first page still returned)", len(comments))
-	}
-}
-
-func TestListComments_paginates_when_CommentsPage_configured(t *testing.T) {
-	transport := &sequenceRoundTripper{
-		t: t,
-		responses: []string{
-			dialogCommentsResponse(true),
-			commentsGraphQLResponse(),
-		},
-	}
-	client := NewClient(
-		map[string]string{"c_user": "123", "xs": "session"},
-		"token",
-		WithHTTPClient(&http.Client{Transport: transport}),
-		WithDocIDs(DocIDs{CommentsPage: "page-doc"}),
-	)
-	client.retryDelay = 0
-
-	comments, err := Collect(client.ListComments(context.Background(), StoryID("123", "36674113645566126")))
+	comments, err := Collect(client.ListComments(context.Background(), FeedbackID("36674113645566126")))
 	if err != nil {
 		t.Fatalf("ListComments() error = %v", err)
 	}
@@ -131,6 +107,9 @@ func TestListComments_paginates_when_CommentsPage_configured(t *testing.T) {
 	}
 	if len(comments) != 2 {
 		t.Fatalf("len(comments) = %d, want 2", len(comments))
+	}
+	if comments[0].Text != "page-1" || comments[1].Text != "page-2" {
+		t.Fatalf("texts = %q, %q", comments[0].Text, comments[1].Text)
 	}
 }
 
@@ -331,7 +310,15 @@ func (t *sequenceRoundTripper) RoundTrip(req *http.Request) (*http.Response, err
 }
 
 func commentsGraphQLResponse() string {
-	return `{"data":{"node":{"__typename":"Feedback","comment_rendering_instance_for_feed_location":{"comments":{"edges":[{"node":{"id":"c1","author":{"id":"u1","name":"Alice"},"body":{"text":"hello"},"feedback":{"id":"comment-feedback","expansion_info":{"expansion_token":"token"},"reactors":{"count_reduced":"0"}}}}],"page_info":{"end_cursor":null,"has_next_page":false}}}}}}`
+	return commentsGraphQLResponseWithCursor("", "hello")
+}
+
+func commentsGraphQLResponseWithCursor(cursor, text string) string {
+	pageInfo := `{"end_cursor":null,"has_next_page":false}`
+	if cursor != "" {
+		pageInfo = `{"end_cursor":"` + cursor + `","has_next_page":true}`
+	}
+	return `{"data":{"node":{"__typename":"Feedback","comment_rendering_instance_for_feed_location":{"comments":{"edges":[{"node":{"id":"c1","author":{"id":"u1","name":"Alice"},"body":{"text":"` + text + `"},"feedback":{"id":"comment-feedback","expansion_info":{"expansion_token":"token"},"reactors":{"count_reduced":"0"}}}}],"page_info":` + pageInfo + `}}}}}`
 }
 
 func dialogCommentsResponse(hasNext bool) string {

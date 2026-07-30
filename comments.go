@@ -10,17 +10,12 @@ import (
 
 const (
 	commentsMaxAttempts        = 5
+	commentsListFriendlyName   = "CommentsListComponentsPaginationQuery"
 	commentsDialogFriendlyName = "CometSinglePostDialogContentQuery"
-	commentsPageFriendlyName   = "CommentsListComponentsPaginationQuery"
 )
 
 // ErrGraphQLResponse marks a Facebook GraphQL response that cannot be trusted as a complete result.
 var ErrGraphQLResponse = errors.New("facebook graphql response error")
-
-// ErrIncompleteComments means the dialog returned a next-page cursor but pagination
-// is unavailable (CommentsPage doc_id unset or rejected). Callers should treat the
-// result as incomplete rather than silently missing later comments.
-var ErrIncompleteComments = errors.New("facebook comments incomplete")
 
 // GraphQLError contains structured metadata from Facebook's GraphQL / AJAX error payload.
 type GraphQLError struct {
@@ -42,73 +37,45 @@ func (e *GraphQLError) Is(target error) bool {
 	return target == ErrGraphQLResponse
 }
 
-// ListComments returns comments for a post.
+// ListComments returns a paginated sequence of comments for a post.
 //
 // id may be either:
-//   - a Comet story ID (preferred; from Post.StoryID or StoryID(author, post)), or
-//   - FeedbackID("postID") (legacy / joaimy callers)
+//   - FeedbackID("postID") (preferred for CommentsList; used by joaimy / fbGraber), or
+//   - a plain Comet StoryID("S:_I{author}:VK:{post}") — converted to FeedbackID
 //
-// When a FeedbackID is given, the story ID is synthesized with the logged-in
-// c_user as author. That only works for posts authored by that user — for other
-// authors pass Post.StoryID, use ListCommentsForPost, or FindGroupPost first.
-//
-// Initial comments come from CometSinglePostDialogContentQuery. If Facebook
-// indicates more pages and DocIDs.CommentsPage is set, remaining pages are
-// fetched via CommentsListComponentsPaginationQuery. Otherwise ListComments
-// yields ErrIncompleteComments after the first page.
+// Uses CommentsListComponentsPaginationQuery (same approach as fbGraber).
 func (c *Client) ListComments(ctx context.Context, id string) iter.Seq2[Comment, error] {
 	return func(yield func(Comment, error) bool) {
-		storyID, feedbackID, err := c.resolveCommentIDs(id)
+		feedbackID, err := c.resolveFeedbackID(id)
 		if err != nil {
 			yield(Comment{}, err)
 			return
 		}
 
-		comments, nextCursor, _, err := c.fetchCommentsDialogWithRetry(ctx, storyID)
-		if err != nil {
-			yield(Comment{}, err)
-			return
-		}
-		for _, comment := range comments {
-			if !yield(comment, nil) {
-				return
-			}
-		}
-
-		if nextCursor == "" {
-			return
-		}
-		if c.docIDs.CommentsPage == "" {
-			yield(Comment{}, fmt.Errorf("%w: more pages after %d comments (set DocIDs.CommentsPage)", ErrIncompleteComments, len(comments)))
-			return
-		}
-
-		total := len(comments)
-		cursor := nextCursor
-		for cursor != "" {
-			page, next, err := c.fetchCommentsPageWithRetry(ctx, feedbackID, cursor)
+		var cursor string
+		for {
+			comments, nextCursor, err := c.fetchCommentsPageWithRetry(ctx, feedbackID, cursor)
 			if err != nil {
 				yield(Comment{}, err)
 				return
 			}
-			for _, comment := range page {
+			for _, comment := range comments {
 				if !yield(comment, nil) {
 					return
 				}
 			}
-			total += len(page)
-			if next == "" {
+			if nextCursor == "" {
 				return
 			}
-			cursor = next
+			cursor = nextCursor
 		}
 	}
 }
 
-// ListCommentsForPost lists comments using an explicit post author id.
-// Prefer this over FeedbackID when the author is known and is not c_user.
+// ListCommentsForPost lists comments for a post id (author is not required for CommentsList).
 func (c *Client) ListCommentsForPost(ctx context.Context, authorID, postID string) iter.Seq2[Comment, error] {
-	return c.ListComments(ctx, StoryID(authorID, postID))
+	_ = authorID
+	return c.ListComments(ctx, FeedbackID(postID))
 }
 
 // FindGroupPost scans a group's feed for a post id and returns that Post
@@ -126,12 +93,32 @@ func (c *Client) FindGroupPost(ctx context.Context, groupID, postID string) (*Po
 	return nil, fmt.Errorf("post %s not found in group %s feed", postID, groupID)
 }
 
-// FetchPostInfo extracts post metadata (story ID, first media ID) from the permalink dialog query.
-// Useful for obtaining the startNodeID needed by ListImages.
-//
-// id may be a FeedbackID or a Comet story ID (see ListComments).
+// FetchPostInfo extracts post metadata (story ID, first media ID).
+// Prefers CommentsList parent_post_story; falls back to CommentsDialog when configured.
 func (c *Client) FetchPostInfo(ctx context.Context, id string) (*PostInfo, error) {
-	storyID, _, err := c.resolveCommentIDs(id)
+	feedbackID, err := c.resolveFeedbackID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	body, reqErr := c.doRequest(ctx, c.docIDs.Comments, commentsListVariables(feedbackID, ""), commentsListFriendlyName)
+	if reqErr == nil {
+		_, _, postInfo, parseErr := parseCommentsResponse(body)
+		if parseErr == nil && postInfo != nil {
+			return postInfo, nil
+		}
+		if parseErr != nil && !errors.Is(parseErr, ErrGraphQLResponse) {
+			return nil, parseErr
+		}
+	} else if c.docIDs.CommentsDialog == "" {
+		return nil, reqErr
+	}
+
+	if c.docIDs.CommentsDialog == "" {
+		return nil, fmt.Errorf("post info not found in comments response")
+	}
+
+	storyID, err := c.resolveStoryIDForDialog(id, feedbackID)
 	if err != nil {
 		return nil, err
 	}
@@ -159,81 +146,63 @@ func (c *Client) FetchReplies(ctx context.Context, comment Comment) ([]Reply, er
 	return parseRepliesResponse(body)
 }
 
-func (c *Client) resolveCommentIDs(id string) (storyID, feedbackID string, err error) {
+func (c *Client) resolveFeedbackID(id string) (string, error) {
+	if _, err := PostIDFromFeedback(id); err == nil {
+		return id, nil
+	}
 	if IsStoryID(id) {
-		storyID = id
-		if _, postID, decErr := AuthorPostFromStory(id); decErr == nil {
-			feedbackID = FeedbackID(postID)
+		_, postID, err := AuthorPostFromStory(id)
+		if err != nil {
+			return "", fmt.Errorf("comments list needs FeedbackID or plain StoryID: %w", err)
 		}
-		return storyID, feedbackID, nil
+		return FeedbackID(postID), nil
 	}
+	if id == "" {
+		return "", fmt.Errorf("resolve feedback id: empty id")
+	}
+	// Bare post id.
+	if isAllDigits(id) {
+		return FeedbackID(id), nil
+	}
+	return "", fmt.Errorf("resolve feedback id: unsupported id %q", id)
+}
 
-	postID, err := PostIDFromFeedback(id)
+func (c *Client) resolveStoryIDForDialog(id, feedbackID string) (string, error) {
+	if IsStoryID(id) {
+		return id, nil
+	}
+	postID, err := PostIDFromFeedback(feedbackID)
 	if err != nil {
-		if id != "" {
-			// Opaque id — treat as story id and hope the caller knows what they passed.
-			return id, "", nil
-		}
-		return "", "", fmt.Errorf("resolve story id: %w", err)
+		return "", err
 	}
-	feedbackID = FeedbackID(postID)
-
 	authorID := c.userID()
 	if authorID == "" || authorID == "0" {
-		return "", "", fmt.Errorf("resolve story id: missing c_user cookie for author")
+		return "", fmt.Errorf("resolve story id: missing c_user cookie for author")
 	}
-	return StoryID(authorID, postID), feedbackID, nil
+	return StoryID(authorID, postID), nil
 }
 
-func (c *Client) fetchCommentsDialogWithRetry(ctx context.Context, storyID string) ([]Comment, string, *PostInfo, error) {
-	var lastErr error
-	for attempt := 1; attempt <= commentsMaxAttempts; attempt++ {
-		comments, cursor, postInfo, err := c.fetchCommentsDialog(ctx, storyID)
-		if err == nil {
-			return comments, cursor, postInfo, nil
-		}
-		if !errors.Is(err, ErrGraphQLResponse) {
-			return nil, "", nil, err
-		}
-		lastErr = err
-		if attempt == commentsMaxAttempts {
-			break
-		}
-		if err := c.waitBeforeCommentsRetry(ctx, attempt, lastErr); err != nil {
-			return nil, "", nil, fmt.Errorf("wait before retry comments: %w", err)
-		}
+func commentsListVariables(feedbackID, cursor string) map[string]any {
+	// Variables aligned with fbGraber FetchComments.
+	return map[string]any{
+		"commentsAfterCount":  -1,
+		"commentsAfterCursor": nilIfEmpty(cursor),
+		"commentsBeforeCount": nil,
+		"commentsBeforeCursor": nil,
+		"commentsIntentToken": nil,
+		"feedLocation":        "POST_PERMALINK_DIALOG",
+		"focusCommentID":      nil,
+		"scale":               1,
+		"useDefaultActor":     false,
+		"id":                  feedbackID,
+		"__relay_internal__pv__CometUFICommentAutoTranslationTyperelayprovider":        "AUTO_TRANSLATE",
+		"__relay_internal__pv__CometUFICommentAvatarStickerAnimatedImagerelayprovider": false,
+		"__relay_internal__pv__CometUFICommentActionLinksRewriteEnabledrelayprovider":  true,
+		"__relay_internal__pv__IsWorkUserrelayprovider":                                false,
 	}
-	return nil, "", nil, fmt.Errorf("fetch comments dialog after %d attempts: %w", commentsMaxAttempts, lastErr)
-}
-
-func (c *Client) fetchCommentsDialog(ctx context.Context, storyID string) ([]Comment, string, *PostInfo, error) {
-	variables := map[string]any{
-		"feedbackSource":                2,
-		"feedLocation":                  "POST_PERMALINK_DIALOG",
-		"focusCommentID":                nil,
-		"privacySelectorRenderLocation": "COMET_STREAM",
-		"renderLocation":                "permalink",
-		"scale":                         1,
-		"shouldChangeNodeFieldName":     true,
-		"storyID":                       storyID,
-		"useDefaultActor":               false,
-	}
-
-	body, err := c.doRequest(ctx, c.docIDs.Comments, variables, commentsDialogFriendlyName)
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("comments dialog: %w", err)
-	}
-	comments, cursor, postInfo, err := parseCommentsResponse(body)
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("parse comments dialog: %w", err)
-	}
-	return comments, cursor, postInfo, nil
 }
 
 func (c *Client) fetchCommentsPageWithRetry(ctx context.Context, feedbackID, cursor string) ([]Comment, string, error) {
-	if feedbackID == "" {
-		return nil, "", fmt.Errorf("%w: cannot paginate without feedback id", ErrIncompleteComments)
-	}
 	var lastErr error
 	for attempt := 1; attempt <= commentsMaxAttempts; attempt++ {
 		comments, next, err := c.fetchCommentsPage(ctx, feedbackID, cursor)
@@ -255,18 +224,7 @@ func (c *Client) fetchCommentsPageWithRetry(ctx context.Context, feedbackID, cur
 }
 
 func (c *Client) fetchCommentsPage(ctx context.Context, feedbackID, cursor string) ([]Comment, string, error) {
-	variables := map[string]any{
-		"commentsAfterCount":  -1,
-		"commentsAfterCursor": nilIfEmpty(cursor),
-		"commentsIntentToken": "REVERSE_CHRONOLOGICAL_UNFILTERED_INTENT_V1",
-		"feedLocation":        "POST_PERMALINK_DIALOG",
-		"focusCommentID":      nil,
-		"scale":               1,
-		"useDefaultActor":     false,
-		"id":                  feedbackID,
-	}
-
-	body, err := c.doRequest(ctx, c.docIDs.CommentsPage, variables, commentsPageFriendlyName)
+	body, err := c.doRequest(ctx, c.docIDs.Comments, commentsListVariables(feedbackID, cursor), commentsListFriendlyName)
 	if err != nil {
 		return nil, "", fmt.Errorf("comments page: %w", err)
 	}
@@ -277,6 +235,51 @@ func (c *Client) fetchCommentsPage(ctx context.Context, feedbackID, cursor strin
 	return comments, next, nil
 }
 
+func (c *Client) fetchCommentsDialogWithRetry(ctx context.Context, storyID string) ([]Comment, string, *PostInfo, error) {
+	var lastErr error
+	for attempt := 1; attempt <= commentsMaxAttempts; attempt++ {
+		comments, cursor, postInfo, err := c.fetchCommentsDialog(ctx, storyID)
+		if err == nil {
+			return comments, cursor, postInfo, nil
+		}
+		if !errors.Is(err, ErrGraphQLResponse) {
+			return nil, "", nil, err
+		}
+		lastErr = err
+		if attempt == commentsMaxAttempts {
+			break
+		}
+		if err := c.waitBeforeCommentsRetry(ctx, attempt, lastErr); err != nil {
+			return nil, "", nil, fmt.Errorf("wait before retry comments dialog: %w", err)
+		}
+	}
+	return nil, "", nil, fmt.Errorf("fetch comments dialog after %d attempts: %w", commentsMaxAttempts, lastErr)
+}
+
+func (c *Client) fetchCommentsDialog(ctx context.Context, storyID string) ([]Comment, string, *PostInfo, error) {
+	variables := map[string]any{
+		"feedbackSource":                2,
+		"feedLocation":                  "POST_PERMALINK_DIALOG",
+		"focusCommentID":                nil,
+		"privacySelectorRenderLocation": "COMET_STREAM",
+		"renderLocation":                "permalink",
+		"scale":                         1,
+		"shouldChangeNodeFieldName":     true,
+		"storyID":                       storyID,
+		"useDefaultActor":               false,
+	}
+
+	body, err := c.doRequest(ctx, c.docIDs.CommentsDialog, variables, commentsDialogFriendlyName)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("comments dialog: %w", err)
+	}
+	comments, cursor, postInfo, err := parseCommentsResponse(body)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("parse comments dialog: %w", err)
+	}
+	return comments, cursor, postInfo, nil
+}
+
 func (c *Client) waitBeforeCommentsRetry(ctx context.Context, attempt int, lastErr error) error {
 	if c.retryDelay <= 0 {
 		return nil
@@ -285,7 +288,6 @@ func (c *Client) waitBeforeCommentsRetry(ctx context.Context, attempt int, lastE
 	delay := time.Duration(attempt) * c.retryDelay
 	var ge *GraphQLError
 	if errors.As(lastErr, &ge) && ge.Code == 1357004 {
-		// Soft rate-limit / "reopen browser" — back off harder.
 		delay = time.Duration(attempt) * c.retryDelay * 4
 	}
 
@@ -352,14 +354,15 @@ func parseCommentsResponse(body string) ([]Comment, string, *PostInfo, error) {
 
 	pageInfo := jsonMap(commentsBlock, "page_info")
 	nextCursor := jsonStr(pageInfo, "end_cursor")
-	if pageInfo["has_next_page"] != true {
+	// Match fbGraber: stop when end_cursor is empty. Only clear when has_next_page is explicitly false.
+	if hasNext, ok := pageInfo["has_next_page"].(bool); ok && !hasNext {
 		nextCursor = ""
 	}
 	return comments, nextCursor, postInfo, nil
 }
 
 func findCommentsBlock(parsed map[string]any) map[string]any {
-	// Legacy CommentsListComponentsPaginationQuery shape.
+	// CommentsListComponentsPaginationQuery shape.
 	if block := jsonNav(parsed,
 		"data", "node", "comment_rendering_instance_for_feed_location", "comments"); block != nil {
 		return block
@@ -405,7 +408,6 @@ func firstResponseError(parsed map[string]any) *GraphQLError {
 	if graphQLErr := firstGraphQLError(parsed); graphQLErr != nil {
 		return graphQLErr
 	}
-	// Facebook AJAX envelope: for (;;);{"__ar":1,"error":1357004,"errorSummary":"..."}.
 	if code := int(jsonFloat(parsed, "error")); code > 0 {
 		summary := jsonStr(parsed, "errorSummary")
 		desc := jsonStr(parsed, "errorDescription")
@@ -494,4 +496,16 @@ func nilIfEmpty(s string) any {
 		return nil
 	}
 	return s
+}
+
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
 }

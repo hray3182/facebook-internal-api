@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -17,29 +18,27 @@ const graphqlURL = "https://www.facebook.com/api/graphql/"
 // DocIDs holds the Facebook GraphQL document IDs used by each API method.
 // Facebook rotates these periodically; pass updated values via WithDocIDs.
 type DocIDs struct {
-	Posts         string // ProfileCometTimelineFeedRefetchQuery
-	Groups        string // GroupsCometFeedRegularStoriesPaginationQuery
-	Comments      string // CometSinglePostDialogContentQuery (initial comment load)
-	CommentsPage  string // CommentsListComponentsPaginationQuery (optional; remaining pages)
-	Replies       string // Depth1CommentsListPaginationQuery
-	Photos        string // CometPhotoRootContentQuery
-	CreateComment string // useCometUFICreateCommentMutation
-	DeleteComment string // useCometUFIDeleteCommentMutation
+	Posts          string // ProfileCometTimelineFeedRefetchQuery
+	Groups         string // GroupsCometFeedRegularStoriesPaginationQuery
+	Comments       string // CommentsListComponentsPaginationQuery (paginated)
+	CommentsDialog string // CometSinglePostDialogContentQuery (optional; post info)
+	Replies        string // Depth1CommentsListPaginationQuery
+	Photos         string // CometPhotoRootContentQuery
+	CreateComment  string // useCometUFICreateCommentMutation
+	DeleteComment  string // useCometUFIDeleteCommentMutation
 }
 
 // DefaultDocIDs contains the doc_id values known to work as of 2026-07.
-// Comments switched to CometSinglePostDialogContentQuery after FB stopped serving
-// CommentsListComponentsPaginationQuery for permalink comment loads.
-// CommentsPage stays empty until a working pagination doc_id is captured again.
+// Comments list values are aligned with fbGraber (CommentsListComponentsPaginationQuery).
 var DefaultDocIDs = DocIDs{
-	Posts:         "25430544756617998",
-	Groups:        "27559756597026523",
-	Comments:      "27808862888770037",
-	CommentsPage:  "",
-	Replies:       "26570577339199586",
-	Photos:        "25998240949874449",
-	CreateComment: "27734094336250655",
-	DeleteComment: "27386493047638332",
+	Posts:          "25430544756617998",
+	Groups:         "27559756597026523",
+	Comments:       "27806180149070312",
+	CommentsDialog: "27808862888770037",
+	Replies:        "26570577339199586",
+	Photos:         "25998240949874449",
+	CreateComment:  "27734094336250655",
+	DeleteComment:  "27386493047638332",
 }
 
 // Client talks to Facebook's internal GraphQL API.
@@ -84,8 +83,8 @@ func WithDocIDs(ids DocIDs) Option {
 		if ids.Comments != "" {
 			cl.docIDs.Comments = ids.Comments
 		}
-		if ids.CommentsPage != "" {
-			cl.docIDs.CommentsPage = ids.CommentsPage
+		if ids.CommentsDialog != "" {
+			cl.docIDs.CommentsDialog = ids.CommentsDialog
 		}
 		if ids.Replies != "" {
 			cl.docIDs.Replies = ids.Replies
@@ -105,10 +104,10 @@ func WithDocIDs(ids DocIDs) Option {
 // NewClient creates a client authenticated with the given Facebook session cookies and DTSG token.
 func NewClient(cookies map[string]string, fbDTSG string, opts ...Option) *Client {
 	c := &Client{
-		http:       http.DefaultClient,
-		cookies:    cookies,
-		fbDTSG:     fbDTSG,
-		userAgent:  "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+		http: http.DefaultClient,
+		cookies: cookies,
+		fbDTSG:  fbDTSG,
+		userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
 		docIDs:     DefaultDocIDs,
 		retryDelay: 500 * time.Millisecond,
 	}
@@ -190,13 +189,19 @@ func (c *Client) doRequest(ctx context.Context, docID string, variables map[stri
 		return "", fmt.Errorf("marshal variables: %w", err)
 	}
 
+	// Form fields aligned with fbGraber / Facebook web RelayModern requests.
 	form := url.Values{
-		"av":        {c.userID()},
-		"__user":    {c.userID()},
-		"__a":       {"1"},
-		"fb_dtsg":   {c.fbDTSG},
-		"doc_id":    {docID},
-		"variables": {string(varsJSON)},
+		"av":                       {c.userID()},
+		"__user":                   {c.userID()},
+		"__a":                      {"1"},
+		"__comet_req":              {"15"},
+		"fb_dtsg":                  {c.fbDTSG},
+		"jazoest":                  {jazoest(c.fbDTSG)},
+		"doc_id":                   {docID},
+		"variables":                {string(varsJSON)},
+		"server_timestamps":        {"true"},
+		"fb_api_caller_class":      {"RelayModern"},
+		"fb_api_req_friendly_name": {friendlyName},
 	}
 	if c.lsd != "" {
 		form.Set("lsd", c.lsd)
@@ -210,11 +215,21 @@ func (c *Client) doRequest(ctx context.Context, docID string, variables map[stri
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	req.Header.Set("User-Agent", c.userAgent)
 	req.Header.Set("Origin", "https://www.facebook.com")
+	req.Header.Set("Referer", "https://www.facebook.com/")
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	req.Header.Set("sec-ch-ua", `"Google Chrome";v="149", "Chromium";v="149", "Not)A;Brand";v="24"`)
+	req.Header.Set("sec-ch-ua-mobile", "?0")
+	req.Header.Set("sec-ch-ua-platform", `"Linux"`)
+	req.Header.Set("sec-fetch-dest", "empty")
+	req.Header.Set("sec-fetch-mode", "cors")
+	req.Header.Set("sec-fetch-site", "same-origin")
+	req.Header.Set("x-asbd-id", "359341")
 	if c.lsd != "" {
-		req.Header.Set("X-FB-LSD", c.lsd)
+		req.Header.Set("x-fb-lsd", c.lsd)
 	}
 	if friendlyName != "" {
-		req.Header.Set("X-FB-Friendly-Name", friendlyName)
+		req.Header.Set("x-fb-friendly-name", friendlyName)
 	}
 
 	for k, v := range c.cookies {
@@ -241,4 +256,12 @@ func (c *Client) doRequest(ctx context.Context, docID string, variables map[stri
 	}
 
 	return string(body), nil
+}
+
+func jazoest(fbDtsg string) string {
+	sum := 0
+	for _, r := range fbDtsg {
+		sum += int(r)
+	}
+	return "2" + strconv.Itoa(sum)
 }

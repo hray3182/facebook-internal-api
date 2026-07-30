@@ -47,8 +47,8 @@ Writes:
 
 Suggested manual actions:
 
-1. Open a post → click comments / sort / view more
+1. Open a post → click comments / sort / view more（應出現 `CommentsListComponentsPaginationQuery`）
 2. Expand a reply thread
 3. Open a photo in the viewer
-4. Scroll / click「查看更多留言」to capture `CommentsListComponentsPaginationQuery` → `CommentsPage`
+4. (optional) open permalink dialog for `CometSinglePostDialogContentQuery` → `CommentsDialog`
 5. (optional) create then delete a throwaway comment for mutation doc_ids

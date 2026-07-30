@@ -196,13 +196,8 @@ func probeComments(parent context.Context, c *fbia.Client, postID string, d time
 		ctx, cancel := withTimeout(parent, d)
 		var first *fbia.Comment
 		var n int
-		var incomplete error
 		for comment, err := range c.ListComments(ctx, id) {
 			if err != nil {
-				if errors.Is(err, fbia.ErrIncompleteComments) {
-					incomplete = err
-					break
-				}
 				out = append(out, fail("Comments", fbia.DefaultDocIDs.Comments, err))
 				cancel()
 				out = append(out,
@@ -219,18 +214,10 @@ func probeComments(parent context.Context, c *fbia.Client, postID string, d time
 		}
 		cancel()
 		if first == nil {
-			detail := "request ok, 0 comments"
-			if incomplete != nil {
-				detail = incomplete.Error()
-			}
-			out = append(out, ok("Comments", fbia.DefaultDocIDs.Comments, detail))
+			out = append(out, ok("Comments", fbia.DefaultDocIDs.Comments, "request ok, 0 comments"))
 			out = append(out, skipped("Replies", fbia.DefaultDocIDs.Replies, "no comments to probe"))
 		} else {
-			detail := fmt.Sprintf("got %d comment(s), first=%s", n, first.CommentID)
-			if incomplete != nil {
-				detail += " (incomplete pages)"
-			}
-			out = append(out, ok("Comments", fbia.DefaultDocIDs.Comments, detail))
+			out = append(out, ok("Comments", fbia.DefaultDocIDs.Comments, fmt.Sprintf("got %d comment(s), first=%s", n, first.CommentID)))
 			ctx, cancel := withTimeout(parent, d)
 			replies, err := c.FetchReplies(ctx, *first)
 			cancel()

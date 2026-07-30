@@ -20,8 +20,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const FRIENDLY_TO_FIELD = {
   ProfileCometTimelineFeedRefetchQuery: 'Posts',
   GroupsCometFeedRegularStoriesPaginationQuery: 'Groups',
-  CometSinglePostDialogContentQuery: 'Comments',
-  CommentsListComponentsPaginationQuery: 'CommentsPage', // optional pagination after dialog
+  CometSinglePostDialogContentQuery: 'CommentsDialog',
+  CommentsListComponentsPaginationQuery: 'Comments',
   Depth1CommentsListPaginationQuery: 'Replies',
   CometPhotoRootContentQuery: 'Photos',
   useCometUFICreateCommentMutation: 'CreateComment',
