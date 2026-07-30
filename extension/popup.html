@@ -36,16 +36,20 @@
         <span class="label">lsd：</span>
         <span id="lsd-status" class="status-badge checking">-</span>
       </div>
+      <div class="status-row">
+        <span class="label">session：</span>
+        <span id="session-status" class="status-badge checking">-</span>
+      </div>
     </div>
 
     <div class="section">
       <h2>匯出</h2>
-      <p class="hint">請先在瀏覽器開啟並登入 facebook.com，再匯出。auth.json 可供 probe / capture 使用。</p>
+      <p class="hint">請先在瀏覽器開啟並登入 facebook.com，瀏覽貼文／留言讓 extension 擷取 GraphQL 指紋後再匯出。auth.json 可供 probe / capture 使用。</p>
       <button id="download-btn" class="btn btn-primary" disabled>
         下載 cookies.json
       </button>
       <button id="download-auth-btn" class="btn btn-auth" disabled>
-        下載 auth.json（含 fb_dtsg + lsd）
+        下載 auth.json（cookies + tokens + session）
       </button>
     </div>
 

@@ -226,6 +226,51 @@ func TestListComments_retries_when_graphql_error_hides_comments(t *testing.T) {
 	}
 }
 
+func TestListComments_includes_session_form_fingerprint_fields(t *testing.T) {
+	transport := &captureRoundTripper{
+		t:    t,
+		body: commentsGraphQLResponse(),
+	}
+	client := NewClient(
+		map[string]string{"c_user": "123", "xs": "session"},
+		"token",
+		WithHTTPClient(&http.Client{Transport: transport}),
+		WithSessionForm(map[string]string{
+			"__dyn":   "dyn-value",
+			"__csr":   "csr-value",
+			"__rev":   "1044139102",
+			"dpr":     "1",
+			"doc_id":  "should-not-override",
+			"fb_dtsg": "should-not-override",
+		}),
+	)
+
+	_, err := Collect(client.ListComments(context.Background(), FeedbackID("36674113645566126")))
+	if err != nil {
+		t.Fatalf("ListComments() error = %v", err)
+	}
+
+	form := transport.form()
+	if form.Get("__dyn") != "dyn-value" {
+		t.Fatalf("__dyn = %q, want dyn-value", form.Get("__dyn"))
+	}
+	if form.Get("__csr") != "csr-value" {
+		t.Fatalf("__csr = %q, want csr-value", form.Get("__csr"))
+	}
+	if form.Get("__rev") != "1044139102" {
+		t.Fatalf("__rev = %q, want 1044139102", form.Get("__rev"))
+	}
+	if form.Get("dpr") != "1" {
+		t.Fatalf("dpr = %q, want 1", form.Get("dpr"))
+	}
+	if form.Get("doc_id") == "should-not-override" {
+		t.Fatal("session form must not override owned doc_id")
+	}
+	if form.Get("fb_dtsg") != "token" {
+		t.Fatalf("fb_dtsg = %q, want token", form.Get("fb_dtsg"))
+	}
+}
+
 func TestCreateComment_sends_create_comment_mutation_when_input_valid(t *testing.T) {
 	// Given
 	transport := &captureRoundTripper{

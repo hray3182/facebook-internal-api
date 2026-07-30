@@ -4,6 +4,7 @@ const userId = document.getElementById('user-id');
 const cookieCount = document.getElementById('cookie-count');
 const dtsgStatus = document.getElementById('dtsg-status');
 const lsdStatus = document.getElementById('lsd-status');
+const sessionStatus = document.getElementById('session-status');
 const downloadBtn = document.getElementById('download-btn');
 const downloadAuthBtn = document.getElementById('download-auth-btn');
 const resultDiv = document.getElementById('result');
@@ -12,6 +13,8 @@ let currentCookies = [];
 let currentUserId = null;
 let currentFbDtsg = null;
 let currentLsd = null;
+let currentSession = null;
+let currentSessionCapturedAt = null;
 
 document.addEventListener('DOMContentLoaded', () => {
   checkLoginStatus();
@@ -22,6 +25,85 @@ downloadAuthBtn.addEventListener('click', downloadAuth);
 
 function updateAuthDownloadState() {
   downloadAuthBtn.disabled = !(currentFbDtsg && currentCookies.length > 0);
+}
+
+function storageGet(keys) {
+  return new Promise((resolve, reject) => {
+    if (!chrome.storage || !chrome.storage.local) {
+      reject(new Error('無 chrome.storage（請在 chrome://extensions 重新載入，並確認有 storage 權限）'));
+      return;
+    }
+    try {
+      chrome.storage.local.get(keys, (result) => {
+        if (chrome.runtime.lastError) {
+          reject(new Error(chrome.runtime.lastError.message));
+          return;
+        }
+        resolve(result || {});
+      });
+    } catch (error) {
+      reject(error);
+    }
+  });
+}
+
+async function loadCapturedSession() {
+  if (!sessionStatus) {
+    return;
+  }
+  sessionStatus.textContent = '檢查中...';
+  sessionStatus.className = 'status-badge checking';
+  currentSession = null;
+  currentSessionCapturedAt = null;
+
+  try {
+    const stored = await storageGet([
+      'session',
+      'session_captured_at',
+      'session_friendly',
+    ]);
+    if (stored.session && typeof stored.session === 'object' && Object.keys(stored.session).length > 0) {
+      currentSession = stored.session;
+      currentSessionCapturedAt = stored.session_captured_at || null;
+      const n = Object.keys(stored.session).length;
+      const friendly = stored.session_friendly ? ` · ${stored.session_friendly}` : '';
+      sessionStatus.textContent = `${n} fields${friendly}`;
+      sessionStatus.className = 'status-badge logged-in';
+    } else {
+      sessionStatus.textContent = '尚未擷取（請瀏覽貼文）';
+      sessionStatus.className = 'status-badge not-logged-in';
+    }
+  } catch (error) {
+    console.error('Failed to load session:', error);
+    sessionStatus.textContent = '讀取失敗: ' + (error && error.message ? error.message : String(error));
+    sessionStatus.className = 'status-badge not-logged-in';
+  }
+}
+
+async function ensureSessionCaptureInjected() {
+  try {
+    const tabs = await chrome.tabs.query({ url: '*://*.facebook.com/*' });
+    for (const tab of tabs) {
+      if (!tab.id) {
+        continue;
+      }
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content_bridge.js'],
+        });
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          files: ['content_hook.js'],
+          world: 'MAIN',
+        });
+      } catch (error) {
+        console.warn('inject session capture failed for tab', tab.id, error);
+      }
+    }
+  } catch (error) {
+    console.warn('ensureSessionCaptureInjected:', error);
+  }
 }
 
 async function checkLoginStatus() {
@@ -36,6 +118,8 @@ async function checkLoginStatus() {
   currentFbDtsg = null;
   currentLsd = null;
   updateAuthDownloadState();
+  await ensureSessionCaptureInjected();
+  await loadCapturedSession();
 
   try {
     const cookies = await chrome.cookies.getAll({ domain: '.facebook.com' });
@@ -237,6 +321,7 @@ async function downloadAuth() {
   downloadAuthBtn.disabled = true;
 
   try {
+    await loadCapturedSession();
     const authData = {
       cookies: currentCookies,
       fb_dtsg: currentFbDtsg,
@@ -244,6 +329,12 @@ async function downloadAuth() {
       c_user: currentUserId,
       extracted_at: new Date().toISOString(),
     };
+    if (currentSession && Object.keys(currentSession).length > 0) {
+      authData.session = currentSession;
+      if (currentSessionCapturedAt) {
+        authData.session_captured_at = currentSessionCapturedAt;
+      }
+    }
 
     const blob = new Blob([JSON.stringify(authData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -252,7 +343,10 @@ async function downloadAuth() {
       filename: 'auth.json',
       saveAs: true,
     });
-    showResult('已下載 auth.json（含 cookies + fb_dtsg + lsd）', 'success');
+    const sessionNote = authData.session
+      ? `；session ${Object.keys(authData.session).length} fields`
+      : '；尚未擷取 session（請先瀏覽貼文／留言）';
+    showResult('已下載 auth.json（cookies + fb_dtsg + lsd' + sessionNote + '）', 'success');
   } catch (error) {
     showResult('下載失敗: ' + error.message, 'error');
   } finally {

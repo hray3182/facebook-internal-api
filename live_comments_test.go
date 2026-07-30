@@ -23,9 +23,10 @@ type liveAuthFile struct {
 		Name  string `json:"name"`
 		Value string `json:"value"`
 	} `json:"cookies"`
-	FBDTSG string `json:"fb_dtsg"`
-	LSD    string `json:"lsd"`
-	CUser  string `json:"c_user"`
+	FBDTSG  string            `json:"fb_dtsg"`
+	LSD     string            `json:"lsd"`
+	CUser   string            `json:"c_user"`
+	Session map[string]string `json:"session"`
 }
 
 func loadLiveAuth(t *testing.T) (*Client, bool) {
@@ -63,6 +64,9 @@ func loadLiveAuth(t *testing.T) (*Client, bool) {
 	opts := []Option{}
 	if a.LSD != "" {
 		opts = append(opts, WithLSD(a.LSD))
+	}
+	if len(a.Session) > 0 {
+		opts = append(opts, WithSessionForm(a.Session))
 	}
 	return NewClient(cookies, a.FBDTSG, opts...), true
 }

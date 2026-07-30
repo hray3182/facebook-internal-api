@@ -1,14 +1,15 @@
 {
   "manifest_version": 3,
   "name": "FBIA Cookie Exporter",
-  "version": "1.0.0",
-  "description": "Export Facebook cookies, fb_dtsg, and lsd for facebook-internal-api tools",
+  "version": "1.1.2",
+  "description": "Export Facebook cookies, fb_dtsg, lsd, and GraphQL session fingerprint for facebook-internal-api",
   "permissions": [
     "cookies",
     "downloads",
     "scripting",
     "activeTab",
-    "tabs"
+    "tabs",
+    "storage"
   ],
   "host_permissions": [
     "*://*.facebook.com/*"
@@ -25,6 +26,19 @@
   "background": {
     "service_worker": "background.js"
   },
+  "content_scripts": [
+    {
+      "matches": ["*://*.facebook.com/*"],
+      "js": ["content_bridge.js"],
+      "run_at": "document_start"
+    },
+    {
+      "matches": ["*://*.facebook.com/*"],
+      "js": ["content_hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    }
+  ],
   "icons": {
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",

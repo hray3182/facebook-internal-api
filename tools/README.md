@@ -8,7 +8,8 @@ Chrome extension adapted from joaimy.com `fb-login-extension`.
 2. Open and log into `facebook.com`
 3. Click the extension → **下載 auth.json**
 
-`auth.json` contains `cookies`, `fb_dtsg`, and `lsd`.
+`auth.json` contains `cookies`, `fb_dtsg`, `lsd`, and (after browsing a post) `session`
+fingerprint fields (`__dyn`, `__csr`, `__rev`, …) captured from live GraphQL requests.
 
 ## 2. Probe current doc_ids (`cmd/probe`)
 

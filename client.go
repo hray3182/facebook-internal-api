@@ -41,15 +41,32 @@ var DefaultDocIDs = DocIDs{
 	DeleteComment:  "27386493047638332",
 }
 
+// ownedGraphQLFormFields are always set by doRequest and must not be taken from SessionForm.
+var ownedGraphQLFormFields = map[string]bool{
+	"av":                       true,
+	"__user":                   true,
+	"__a":                      true,
+	"__comet_req":              true,
+	"fb_dtsg":                  true,
+	"jazoest":                  true,
+	"doc_id":                   true,
+	"variables":                true,
+	"lsd":                      true,
+	"server_timestamps":        true,
+	"fb_api_caller_class":      true,
+	"fb_api_req_friendly_name": true,
+}
+
 // Client talks to Facebook's internal GraphQL API.
 type Client struct {
-	http       *http.Client
-	cookies    map[string]string
-	fbDTSG     string
-	lsd        string
-	userAgent  string
-	docIDs     DocIDs
-	retryDelay time.Duration
+	http        *http.Client
+	cookies     map[string]string
+	fbDTSG      string
+	lsd         string
+	sessionForm map[string]string
+	userAgent   string
+	docIDs      DocIDs
+	retryDelay  time.Duration
 }
 
 // Option configures a Client.
@@ -68,6 +85,25 @@ func WithUserAgent(ua string) Option {
 // WithLSD sends Facebook's lsd token in both the GraphQL form body and X-FB-LSD header.
 func WithLSD(lsd string) Option {
 	return func(cl *Client) { cl.lsd = lsd }
+}
+
+// WithSessionForm attaches browser GraphQL fingerprint fields (e.g. __dyn, __csr, __rev)
+// exported by the cookie extension as auth.json "session". Owned fields such as
+// fb_dtsg / doc_id / variables are ignored if present.
+func WithSessionForm(fields map[string]string) Option {
+	return func(cl *Client) {
+		if len(fields) == 0 {
+			cl.sessionForm = nil
+			return
+		}
+		cl.sessionForm = make(map[string]string, len(fields))
+		for k, v := range fields {
+			if k == "" || v == "" || ownedGraphQLFormFields[k] {
+				continue
+			}
+			cl.sessionForm[k] = v
+		}
+	}
 }
 
 // WithDocIDs overrides the default GraphQL document IDs.
@@ -104,10 +140,10 @@ func WithDocIDs(ids DocIDs) Option {
 // NewClient creates a client authenticated with the given Facebook session cookies and DTSG token.
 func NewClient(cookies map[string]string, fbDTSG string, opts ...Option) *Client {
 	c := &Client{
-		http: http.DefaultClient,
-		cookies: cookies,
-		fbDTSG:  fbDTSG,
-		userAgent: "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
+		http:       http.DefaultClient,
+		cookies:    cookies,
+		fbDTSG:     fbDTSG,
+		userAgent:  "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36",
 		docIDs:     DefaultDocIDs,
 		retryDelay: 500 * time.Millisecond,
 	}
@@ -189,20 +225,22 @@ func (c *Client) doRequest(ctx context.Context, docID string, variables map[stri
 		return "", fmt.Errorf("marshal variables: %w", err)
 	}
 
-	// Form fields aligned with fbGraber / Facebook web RelayModern requests.
-	form := url.Values{
-		"av":                       {c.userID()},
-		"__user":                   {c.userID()},
-		"__a":                      {"1"},
-		"__comet_req":              {"15"},
-		"fb_dtsg":                  {c.fbDTSG},
-		"jazoest":                  {jazoest(c.fbDTSG)},
-		"doc_id":                   {docID},
-		"variables":                {string(varsJSON)},
-		"server_timestamps":        {"true"},
-		"fb_api_caller_class":      {"RelayModern"},
-		"fb_api_req_friendly_name": {friendlyName},
+	// Browser fingerprint fields first; owned RelayModern fields overwrite below.
+	form := url.Values{}
+	for k, v := range c.sessionForm {
+		form.Set(k, v)
 	}
+	form.Set("av", c.userID())
+	form.Set("__user", c.userID())
+	form.Set("__a", "1")
+	form.Set("__comet_req", "15")
+	form.Set("fb_dtsg", c.fbDTSG)
+	form.Set("jazoest", jazoest(c.fbDTSG))
+	form.Set("doc_id", docID)
+	form.Set("variables", string(varsJSON))
+	form.Set("server_timestamps", "true")
+	form.Set("fb_api_caller_class", "RelayModern")
+	form.Set("fb_api_req_friendly_name", friendlyName)
 	if c.lsd != "" {
 		form.Set("lsd", c.lsd)
 	}

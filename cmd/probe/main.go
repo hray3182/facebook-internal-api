@@ -2,7 +2,7 @@
 //
 //	go run ./cmd/probe -auth auth.json -user USER_ID -group GROUP_ID -post POST_ID
 //
-// auth.json is produced by extension/ (cookies + fb_dtsg + optional lsd).
+// auth.json is produced by extension/ (cookies + fb_dtsg + optional lsd/session).
 package main
 
 import (
@@ -19,12 +19,13 @@ import (
 )
 
 type authFile struct {
-	Cookies    []cookieEntry `json:"cookies"`
-	CookieMap  map[string]string
-	FBDTSG     string `json:"fb_dtsg"`
-	LSD        string `json:"lsd"`
-	CUser      string `json:"c_user"`
-	ExtractedAt string `json:"extracted_at"`
+	Cookies     []cookieEntry     `json:"cookies"`
+	CookieMap   map[string]string
+	FBDTSG      string            `json:"fb_dtsg"`
+	LSD         string            `json:"lsd"`
+	CUser       string            `json:"c_user"`
+	Session     map[string]string `json:"session"`
+	ExtractedAt string            `json:"extracted_at"`
 }
 
 type cookieEntry struct {
@@ -57,10 +58,13 @@ func main() {
 	if auth.LSD != "" {
 		opts = append(opts, fbia.WithLSD(auth.LSD))
 	}
+	if len(auth.Session) > 0 {
+		opts = append(opts, fbia.WithSessionForm(auth.Session))
+	}
 	client := fbia.NewClient(auth.CookieMap, auth.FBDTSG, opts...)
 
 	fmt.Printf("probing DefaultDocIDs (as of library defaults)\n")
-	fmt.Printf("auth: %s  c_user=%s\n\n", *authPath, auth.CookieMap["c_user"])
+	fmt.Printf("auth: %s  c_user=%s  session_fields=%d\n\n", *authPath, auth.CookieMap["c_user"], len(auth.Session))
 
 	var results []probeResult
 	ctx := context.Background()
