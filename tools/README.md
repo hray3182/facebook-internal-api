@@ -19,6 +19,17 @@ go run ./cmd/probe -auth auth.json \
   -post POST_ID
 ```
 
+Known live fixture (when auth is valid):
+
+```bash
+# https://www.facebook.com/groups/1635204946735429/posts/4400009946921568
+go run ./cmd/probe -auth auth.json \
+  -group 1635204946735429 \
+  -post 4400009946921568
+
+go test -run TestLive_ListComments -v
+```
+
 Exit code `1` means at least one live probe failed (doc_id may have rotated).
 
 ## 3. Capture fresh doc_ids (`tools/capture`) — semi-manual
