@@ -64,3 +64,4 @@ Suggested manual actions:
 3. Open a photo in the viewer
 4. (optional) open permalink dialog for `CometSinglePostDialogContentQuery` → `CommentsDialog`
 5. (optional) create then delete a throwaway comment for mutation doc_ids
+6. (optional) post menu → turn comments off/on for `useCometFeedStoryDisableCommentingMutation` / `useCometFeedStoryEnableCommentingMutation`

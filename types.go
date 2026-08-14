@@ -2,16 +2,25 @@ package fbia
 
 // Post represents a Facebook post from a page timeline or group feed.
 type Post struct {
-	PostID       string  `json:"post_id"`
-	StoryID      string  `json:"story_id,omitempty"`
-	FeedbackID   string  `json:"feedback_id,omitempty"`
-	Text         string  `json:"text,omitempty"`
-	Permalink    string  `json:"permalink,omitempty"`
-	CommentCount int     `json:"comment_count"`
-	PageName     string  `json:"page_name,omitempty"`
-	GroupName    string  `json:"group_name,omitempty"`
-	Media        []Media `json:"media,omitempty"`
-	VideoOrReel  bool    `json:"video_or_reel,omitempty"`
+	PostID       string `json:"post_id"`
+	StoryID      string `json:"story_id,omitempty"`
+	FeedbackID   string `json:"feedback_id,omitempty"`
+	Text         string `json:"text,omitempty"`
+	Permalink    string `json:"permalink,omitempty"`
+	CommentCount int    `json:"comment_count"`
+	// CommentsDisabled is set when the feed payload includes
+	// have_comments_been_disabled (group UFI). Nil means the field was absent.
+	CommentsDisabled *bool   `json:"comments_disabled,omitempty"`
+	PageName         string  `json:"page_name,omitempty"`
+	GroupName        string  `json:"group_name,omitempty"`
+	Media            []Media `json:"media,omitempty"`
+	VideoOrReel      bool    `json:"video_or_reel,omitempty"`
+}
+
+// CommentingStatus is the post-level commenting switch (have_comments_been_disabled).
+type CommentingStatus struct {
+	FeedbackID       string `json:"feedback_id"`
+	CommentsDisabled bool   `json:"comments_disabled"`
 }
 
 // Comment represents a top-level comment on a post.

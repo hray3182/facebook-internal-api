@@ -19,6 +19,12 @@
 //	    fmt.Println(comment.Text)
 //	}
 //
+//	status, err := client.FetchCommentingStatus(ctx, fbia.FeedbackID("POST_ID"))
+//	if err != nil {
+//	    log.Fatal(err)
+//	}
+//	fmt.Println("comments disabled:", status.CommentsDisabled)
+//
 //	// Collect into a slice
 //	posts, err := fbia.Collect(client.ListPosts(ctx, "USER_ID"))
 package fbia

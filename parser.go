@@ -106,6 +106,14 @@ func jsonFloat(m map[string]any, key string) float64 {
 	return v
 }
 
+func jsonBool(m map[string]any, key string) (bool, bool) {
+	if m == nil {
+		return false, false
+	}
+	v, ok := m[key].(bool)
+	return v, ok
+}
+
 func jsonSlice(m map[string]any, key string) []any {
 	if m == nil {
 		return nil

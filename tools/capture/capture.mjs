@@ -26,10 +26,12 @@ const FRIENDLY_TO_FIELD = {
   CometPhotoRootContentQuery: 'Photos',
   useCometUFICreateCommentMutation: 'CreateComment',
   useCometUFIDeleteCommentMutation: 'DeleteComment',
+  useCometFeedStoryDisableCommentingMutation: 'DisableCommenting',
+  useCometFeedStoryEnableCommentingMutation: 'EnableCommenting',
 };
 
 const INTERESTING_RE =
-  /Comment|UFI|Depth|Reply|Feedback|Photo|GroupsCometFeed|TimelineFeed|CreateComment|DeleteComment|SinglePostDialog/i;
+  /Comment|UFI|Depth|Reply|Feedback|Photo|GroupsCometFeed|TimelineFeed|CreateComment|DeleteComment|SinglePostDialog|DisableCommenting|EnableCommenting/i;
 
 function parseArgs(argv) {
   const out = {

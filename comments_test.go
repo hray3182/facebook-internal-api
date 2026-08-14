@@ -345,6 +345,191 @@ func TestCreateComment_sends_create_comment_mutation_when_input_valid(t *testing
 	}
 }
 
+func TestDisableCommenting_sends_disable_mutation_when_id_valid(t *testing.T) {
+	transport := &captureRoundTripper{
+		t:    t,
+		body: commentingToggleGraphQLResponse(true),
+	}
+	client := NewClient(
+		map[string]string{"c_user": "100007461752812", "xs": "session"},
+		"token",
+		WithHTTPClient(&http.Client{Transport: transport}),
+		WithDocIDs(DocIDs{DisableCommenting: "disable-doc"}),
+	)
+
+	status, err := client.DisableCommenting(context.Background(), "1722750337980889")
+	if err != nil {
+		t.Fatalf("DisableCommenting() error = %v", err)
+	}
+	if !status.CommentsDisabled {
+		t.Fatal("CommentsDisabled = false, want true")
+	}
+	if status.FeedbackID != FeedbackID("1722750337980889") {
+		t.Fatalf("FeedbackID = %q, want encoded feedback id", status.FeedbackID)
+	}
+	if transport.req.Header.Get("X-FB-Friendly-Name") != "useCometFeedStoryDisableCommentingMutation" {
+		t.Fatalf("X-FB-Friendly-Name = %q", transport.req.Header.Get("X-FB-Friendly-Name"))
+	}
+
+	form := transport.form()
+	if form.Get("doc_id") != "disable-doc" {
+		t.Fatalf("doc_id = %q, want disable-doc", form.Get("doc_id"))
+	}
+
+	variables := decodeVariables(t, form)
+	mutationInput := jsonMap(variables, "input")
+	if jsonStr(mutationInput, "actor_id") != "100007461752812" {
+		t.Fatalf("actor_id = %q", jsonStr(mutationInput, "actor_id"))
+	}
+	if jsonStr(mutationInput, "feedback_id") != FeedbackID("1722750337980889") {
+		t.Fatalf("feedback_id = %q", jsonStr(mutationInput, "feedback_id"))
+	}
+	if jsonStr(mutationInput, "client_mutation_id") == "" {
+		t.Fatal("client_mutation_id is empty")
+	}
+}
+
+func TestEnableCommenting_sends_enable_mutation_when_id_valid(t *testing.T) {
+	transport := &captureRoundTripper{
+		t:    t,
+		body: commentingToggleGraphQLResponse(false),
+	}
+	client := NewClient(
+		map[string]string{"c_user": "100007461752812", "xs": "session"},
+		"token",
+		WithHTTPClient(&http.Client{Transport: transport}),
+		WithDocIDs(DocIDs{EnableCommenting: "enable-doc"}),
+	)
+
+	status, err := client.EnableCommenting(context.Background(), FeedbackID("1722750337980889"))
+	if err != nil {
+		t.Fatalf("EnableCommenting() error = %v", err)
+	}
+	if status.CommentsDisabled {
+		t.Fatal("CommentsDisabled = true, want false")
+	}
+	if transport.req.Header.Get("X-FB-Friendly-Name") != "useCometFeedStoryEnableCommentingMutation" {
+		t.Fatalf("X-FB-Friendly-Name = %q", transport.req.Header.Get("X-FB-Friendly-Name"))
+	}
+
+	form := transport.form()
+	if form.Get("doc_id") != "enable-doc" {
+		t.Fatalf("doc_id = %q, want enable-doc", form.Get("doc_id"))
+	}
+	if form.Get("fb_api_req_friendly_name") != "useCometFeedStoryEnableCommentingMutation" {
+		t.Fatalf("fb_api_req_friendly_name = %q", form.Get("fb_api_req_friendly_name"))
+	}
+}
+
+func TestDisableCommenting_returns_error_when_id_empty(t *testing.T) {
+	client := NewClient(map[string]string{"c_user": "123", "xs": "session"}, "token")
+
+	_, err := client.DisableCommenting(context.Background(), "")
+	if err == nil {
+		t.Fatal("DisableCommenting() error = nil, want empty id error")
+	}
+}
+
+func TestDisableCommenting_returns_error_when_mutation_block_missing(t *testing.T) {
+	transport := &captureRoundTripper{
+		t:    t,
+		body: `{"data":{}}`,
+	}
+	client := NewClient(
+		map[string]string{"c_user": "123", "xs": "session"},
+		"token",
+		WithHTTPClient(&http.Client{Transport: transport}),
+	)
+
+	_, err := client.DisableCommenting(context.Background(), "1722750337980889")
+	if !errors.Is(err, ErrGraphQLResponse) {
+		t.Fatalf("error = %v, want ErrGraphQLResponse", err)
+	}
+}
+
+func TestFetchCommentingStatus_reads_have_comments_been_disabled(t *testing.T) {
+	transport := &captureRoundTripper{
+		t:    t,
+		body: commentingStatusGraphQLResponse(true),
+	}
+	client := NewClient(
+		map[string]string{"c_user": "123", "xs": "session"},
+		"token",
+		WithHTTPClient(&http.Client{Transport: transport}),
+	)
+
+	status, err := client.FetchCommentingStatus(context.Background(), "1722750337980889")
+	if err != nil {
+		t.Fatalf("FetchCommentingStatus() error = %v", err)
+	}
+	if !status.CommentsDisabled {
+		t.Fatal("CommentsDisabled = false, want true")
+	}
+	if status.FeedbackID != FeedbackID("1722750337980889") {
+		t.Fatalf("FeedbackID = %q", status.FeedbackID)
+	}
+	if transport.req.Header.Get("X-FB-Friendly-Name") != "CometSinglePostDialogContentQuery" {
+		t.Fatalf("X-FB-Friendly-Name = %q", transport.req.Header.Get("X-FB-Friendly-Name"))
+	}
+}
+
+func TestFetchCommentingStatus_returns_error_when_field_missing(t *testing.T) {
+	transport := &captureRoundTripper{
+		t:    t,
+		body: commentsGraphQLResponse(),
+	}
+	client := NewClient(
+		map[string]string{"c_user": "123", "xs": "session"},
+		"token",
+		WithHTTPClient(&http.Client{Transport: transport}),
+	)
+
+	_, err := client.FetchCommentingStatus(context.Background(), "1722750337980889")
+	if !errors.Is(err, ErrGraphQLResponse) {
+		t.Fatalf("error = %v, want ErrGraphQLResponse", err)
+	}
+}
+
+func TestExtractPost_reads_comments_disabled_from_ufi(t *testing.T) {
+	node := map[string]any{
+		"post_id": "1722750337980889",
+		"id":      "UzpfSTEwMDAwNzQ2MTc1MjgxMjpWSzoxNzIyNzUwMzM3OTgwODg5",
+		"feedback": map[string]any{
+			"id": FeedbackID("1722750337980889"),
+		},
+		"comet_sections": map[string]any{
+			"feedback": map[string]any{
+				"story": map[string]any{
+					"story_ufi_container": map[string]any{
+						"story": map[string]any{
+							"feedback_context": map[string]any{
+								"feedback_target_with_context": map[string]any{
+									"have_comments_been_disabled": true,
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	post := extractPost(node)
+	if post.CommentsDisabled == nil || !*post.CommentsDisabled {
+		t.Fatalf("CommentsDisabled = %v, want true", post.CommentsDisabled)
+	}
+}
+
+func TestExtractPost_leaves_comments_disabled_nil_when_field_absent(t *testing.T) {
+	post := extractPost(map[string]any{
+		"post_id":  "1",
+		"feedback": map[string]any{"id": "fb"},
+	})
+	if post.CommentsDisabled != nil {
+		t.Fatalf("CommentsDisabled = %v, want nil", post.CommentsDisabled)
+	}
+}
+
 func TestDeleteComment_sends_delete_comment_mutation_when_input_valid(t *testing.T) {
 	// Given
 	transport := &captureRoundTripper{
@@ -499,4 +684,23 @@ func createCommentGraphQLResponse() string {
 
 func deleteCommentGraphQLResponse() string {
 	return `{"data":{"comment_delete":{"deleted_comment_id":"Y29tbWVudDoyNTAyNDE1NTY2MDYxNDE4MV8yNzA3MDcwMTI0MjYyNjI2OQ==","feedback":{"id":"ZmVlZGJhY2s6MjUwMjQxNTU2NjA2MTQxODE=","associated_group":{"id":"10081235341999458"}}}}}`
+}
+
+func commentingToggleGraphQLResponse(disabled bool) string {
+	key := "feedback_enable_commenting"
+	if disabled {
+		key = "feedback_disable_commenting"
+	}
+	return `{"data":{"` + key + `":{"feedback":{"id":"` + FeedbackID("1722750337980889") + `","have_comments_been_disabled":` + boolJSON(disabled) + `}}}}`
+}
+
+func commentingStatusGraphQLResponse(disabled bool) string {
+	return `{"data":{"node_v2":{"comet_sections":{"feedback":{"story":{"story_ufi_container":{"story":{"feedback_context":{"feedback_target_with_context":{"comment_list_renderer":{"feedback":{"id":"` + FeedbackID("1722750337980889") + `","have_comments_been_disabled":` + boolJSON(disabled) + `}}}}}}}}}}}}`
+}
+
+func boolJSON(v bool) string {
+	if v {
+		return "true"
+	}
+	return "false"
 }

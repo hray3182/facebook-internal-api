@@ -19,7 +19,7 @@ import (
 )
 
 type authFile struct {
-	Cookies     []cookieEntry     `json:"cookies"`
+	Cookies     []cookieEntry `json:"cookies"`
 	CookieMap   map[string]string
 	FBDTSG      string            `json:"fb_dtsg"`
 	LSD         string            `json:"lsd"`
@@ -101,6 +101,8 @@ func main() {
 	results = append(results,
 		skipped("CreateComment", fbia.DefaultDocIDs.CreateComment, "mutation; capture via tools/capture"),
 		skipped("DeleteComment", fbia.DefaultDocIDs.DeleteComment, "mutation; capture via tools/capture"),
+		skipped("DisableCommenting", fbia.DefaultDocIDs.DisableCommenting, "mutation; capture via tools/capture"),
+		skipped("EnableCommenting", fbia.DefaultDocIDs.EnableCommenting, "mutation; capture via tools/capture"),
 	)
 
 	failed := 0

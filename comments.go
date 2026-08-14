@@ -196,16 +196,16 @@ func (c *Client) resolveStoryIDForDialog(id, feedbackID string) (string, error) 
 func commentsListVariables(feedbackID, cursor string) map[string]any {
 	// Variables aligned with fbGraber FetchComments.
 	return map[string]any{
-		"commentsAfterCount":  -1,
-		"commentsAfterCursor": nilIfEmpty(cursor),
-		"commentsBeforeCount": nil,
+		"commentsAfterCount":   -1,
+		"commentsAfterCursor":  nilIfEmpty(cursor),
+		"commentsBeforeCount":  nil,
 		"commentsBeforeCursor": nil,
-		"commentsIntentToken": nil,
-		"feedLocation":        "POST_PERMALINK_DIALOG",
-		"focusCommentID":      nil,
-		"scale":               1,
-		"useDefaultActor":     false,
-		"id":                  feedbackID,
+		"commentsIntentToken":  nil,
+		"feedLocation":         "POST_PERMALINK_DIALOG",
+		"focusCommentID":       nil,
+		"scale":                1,
+		"useDefaultActor":      false,
+		"id":                   feedbackID,
 		"__relay_internal__pv__CometUFICommentAutoTranslationTyperelayprovider":        "AUTO_TRANSLATE",
 		"__relay_internal__pv__CometUFICommentAvatarStickerAnimatedImagerelayprovider": false,
 		"__relay_internal__pv__CometUFICommentActionLinksRewriteEnabledrelayprovider":  true,
@@ -268,7 +268,19 @@ func (c *Client) fetchCommentsDialogWithRetry(ctx context.Context, storyID strin
 }
 
 func (c *Client) fetchCommentsDialog(ctx context.Context, storyID string) ([]Comment, string, *PostInfo, error) {
-	variables := map[string]any{
+	body, err := c.doRequest(ctx, c.docIDs.CommentsDialog, commentsDialogVariables(storyID), commentsDialogFriendlyName)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("comments dialog: %w", err)
+	}
+	comments, cursor, postInfo, err := parseCommentsResponse(body)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("parse comments dialog: %w", err)
+	}
+	return comments, cursor, postInfo, nil
+}
+
+func commentsDialogVariables(storyID string) map[string]any {
+	return map[string]any{
 		"feedbackSource":                2,
 		"feedLocation":                  "POST_PERMALINK_DIALOG",
 		"focusCommentID":                nil,
@@ -279,16 +291,6 @@ func (c *Client) fetchCommentsDialog(ctx context.Context, storyID string) ([]Com
 		"storyID":                       storyID,
 		"useDefaultActor":               false,
 	}
-
-	body, err := c.doRequest(ctx, c.docIDs.CommentsDialog, variables, commentsDialogFriendlyName)
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("comments dialog: %w", err)
-	}
-	comments, cursor, postInfo, err := parseCommentsResponse(body)
-	if err != nil {
-		return nil, "", nil, fmt.Errorf("parse comments dialog: %w", err)
-	}
-	return comments, cursor, postInfo, nil
 }
 
 func (c *Client) waitBeforeCommentsRetry(ctx context.Context, attempt int, lastErr error) error {

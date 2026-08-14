@@ -15,16 +15,17 @@ func extractPost(node map[string]any) Post {
 	}
 
 	return Post{
-		PostID:       postID,
-		StoryID:      storyID,
-		FeedbackID:   jsonStr(fb, "id"),
-		Text:         extractMessage(node),
-		Permalink:    extractPermalink(node),
-		CommentCount: extractCommentCount(node),
-		PageName:     extractPageName(node),
-		GroupName:    extractGroupName(node),
-		Media:        extractMedia(node),
-		VideoOrReel:  isVideoOrReel(node),
+		PostID:           postID,
+		StoryID:          storyID,
+		FeedbackID:       jsonStr(fb, "id"),
+		Text:             extractMessage(node),
+		Permalink:        extractPermalink(node),
+		CommentCount:     extractCommentCount(node),
+		CommentsDisabled: extractCommentsDisabled(node),
+		PageName:         extractPageName(node),
+		GroupName:        extractGroupName(node),
+		Media:            extractMedia(node),
+		VideoOrReel:      isVideoOrReel(node),
 	}
 }
 
@@ -75,6 +76,25 @@ func extractCommentCount(node map[string]any) int {
 		}
 	}
 	return 0
+}
+
+func extractCommentsDisabled(node map[string]any) *bool {
+	paths := [][]string{
+		{"comet_sections", "feedback", "story", "story_ufi_container", "story",
+			"feedback_context", "feedback_target_with_context", "comment_list_renderer", "feedback"},
+		{"comet_sections", "feedback", "story", "story_ufi_container", "story",
+			"feedback_context", "feedback_target_with_context"},
+		{"comet_sections", "feedback", "story",
+			"feedback_context", "feedback_target_with_context"},
+		{"feedback"},
+	}
+	for _, p := range paths {
+		if disabled, ok := jsonBool(jsonNav(node, p...), "have_comments_been_disabled"); ok {
+			v := disabled
+			return &v
+		}
+	}
+	return nil
 }
 
 func extractPageName(node map[string]any) string {

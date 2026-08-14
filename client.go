@@ -18,27 +18,31 @@ const graphqlURL = "https://www.facebook.com/api/graphql/"
 // DocIDs holds the Facebook GraphQL document IDs used by each API method.
 // Facebook rotates these periodically; pass updated values via WithDocIDs.
 type DocIDs struct {
-	Posts          string // ProfileCometTimelineFeedRefetchQuery
-	Groups         string // GroupsCometFeedRegularStoriesPaginationQuery
-	Comments       string // CommentsListComponentsPaginationQuery (paginated)
-	CommentsDialog string // CometSinglePostDialogContentQuery (optional; post info)
-	Replies        string // Depth1CommentsListPaginationQuery
-	Photos         string // CometPhotoRootContentQuery
-	CreateComment  string // useCometUFICreateCommentMutation
-	DeleteComment  string // useCometUFIDeleteCommentMutation
+	Posts             string // ProfileCometTimelineFeedRefetchQuery
+	Groups            string // GroupsCometFeedRegularStoriesPaginationQuery
+	Comments          string // CommentsListComponentsPaginationQuery (paginated)
+	CommentsDialog    string // CometSinglePostDialogContentQuery (optional; post info)
+	Replies           string // Depth1CommentsListPaginationQuery
+	Photos            string // CometPhotoRootContentQuery
+	CreateComment     string // useCometUFICreateCommentMutation
+	DeleteComment     string // useCometUFIDeleteCommentMutation
+	DisableCommenting string // useCometFeedStoryDisableCommentingMutation
+	EnableCommenting  string // useCometFeedStoryEnableCommentingMutation
 }
 
 // DefaultDocIDs contains the doc_id values known to work as of 2026-07.
 // Comments list values are aligned with fbGraber (CommentsListComponentsPaginationQuery).
 var DefaultDocIDs = DocIDs{
-	Posts:          "25430544756617998",
-	Groups:         "27559756597026523",
-	Comments:       "27806180149070312",
-	CommentsDialog: "27808862888770037",
-	Replies:        "26570577339199586",
-	Photos:         "25998240949874449",
-	CreateComment:  "27734094336250655",
-	DeleteComment:  "27386493047638332",
+	Posts:             "25430544756617998",
+	Groups:            "27559756597026523",
+	Comments:          "27806180149070312",
+	CommentsDialog:    "27808862888770037",
+	Replies:           "26570577339199586",
+	Photos:            "25998240949874449",
+	CreateComment:     "27734094336250655",
+	DeleteComment:     "27386493047638332",
+	DisableCommenting: "27824746487117964",
+	EnableCommenting:  "27188298634159971",
 }
 
 // ownedGraphQLFormFields are always set by doRequest and must not be taken from SessionForm.
@@ -133,6 +137,12 @@ func WithDocIDs(ids DocIDs) Option {
 		}
 		if ids.DeleteComment != "" {
 			cl.docIDs.DeleteComment = ids.DeleteComment
+		}
+		if ids.DisableCommenting != "" {
+			cl.docIDs.DisableCommenting = ids.DisableCommenting
+		}
+		if ids.EnableCommenting != "" {
+			cl.docIDs.EnableCommenting = ids.EnableCommenting
 		}
 	}
 }

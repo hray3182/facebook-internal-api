@@ -24,6 +24,9 @@ func main() {
 		fmt.Println("  replies  <post_id>            list comments + replies on a post")
 		fmt.Println("  images   <media_id> <post_id> walk images in a post")
 		fmt.Println("  postinfo <post_id>            fetch post metadata (media_id)")
+		fmt.Println("  commenting-status <post_id>   whether commenting is disabled")
+		fmt.Println("  disable-comments <post_id>    turn off commenting")
+		fmt.Println("  enable-comments <post_id>     turn on commenting")
 		return
 	}
 
@@ -40,6 +43,12 @@ func main() {
 		demoImages(ctx, client, os.Args[2], os.Args[3])
 	case "postinfo":
 		demoPostInfo(ctx, client, os.Args[2])
+	case "commenting-status":
+		demoCommentingStatus(ctx, client, os.Args[2])
+	case "disable-comments":
+		demoSetCommenting(ctx, client, os.Args[2], true)
+	case "enable-comments":
+		demoSetCommenting(ctx, client, os.Args[2], false)
 	default:
 		log.Fatalf("unknown command: %s", os.Args[1])
 	}
@@ -211,6 +220,39 @@ func demoPostInfo(ctx context.Context, c *fbia.Client, postID string) {
 	}
 }
 
+func demoCommentingStatus(ctx context.Context, c *fbia.Client, postID string) {
+	status, err := c.FetchCommentingStatus(ctx, postID)
+	if err != nil {
+		log.Fatal(err)
+	}
+	printCommentingStatus(status)
+}
+
+func demoSetCommenting(ctx context.Context, c *fbia.Client, postID string, disabled bool) {
+	var (
+		status *fbia.CommentingStatus
+		err    error
+	)
+	if disabled {
+		status, err = c.DisableCommenting(ctx, postID)
+	} else {
+		status, err = c.EnableCommenting(ctx, postID)
+	}
+	if err != nil {
+		log.Fatal(err)
+	}
+	printCommentingStatus(status)
+}
+
+func printCommentingStatus(status *fbia.CommentingStatus) {
+	state := "on"
+	if status.CommentsDisabled {
+		state = "off"
+	}
+	fmt.Printf("feedback_id: %s\n", status.FeedbackID)
+	fmt.Printf("commenting: %s (comments_disabled=%t)\n", state, status.CommentsDisabled)
+}
+
 func printPost(p fbia.Post) {
 	fmt.Printf("\n--- %s ---\n", p.PostID)
 	if p.PageName != "" {
@@ -227,6 +269,9 @@ func printPost(p fbia.Post) {
 		fmt.Printf("  text: %s\n", text)
 	}
 	fmt.Printf("  comments: %d  video_or_reel: %v\n", p.CommentCount, p.VideoOrReel)
+	if p.CommentsDisabled != nil {
+		fmt.Printf("  comments_disabled: %v\n", *p.CommentsDisabled)
+	}
 	for _, m := range p.Media {
 		url := m.URL
 		if len(url) > 60 {
