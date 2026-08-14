@@ -11,8 +11,9 @@
 //	    "fb_dtsg_token",
 //	)
 //
-//	// Range over comments (FeedbackID — same as fbGraber / joaimy)
-//	for comment, err := range client.ListComments(ctx, fbia.FeedbackID("POST_ID")) {
+//	// Permalink → post ID, then FeedbackID for comments
+//	ref := fbia.ParsePostURL(postURL)
+//	for comment, err := range client.ListComments(ctx, fbia.FeedbackID(ref.PostID)) {
 //	    if err != nil {
 //	        log.Fatal(err)
 //	    }
