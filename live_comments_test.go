@@ -137,6 +137,9 @@ func TestLive_FetchCommentingStatus(t *testing.T) {
 }
 
 func TestLive_ToggleCommenting_roundTrip(t *testing.T) {
+	if os.Getenv("FB_LIVE_MUTATIONS") != "1" {
+		t.Skip("set FB_LIVE_MUTATIONS=1 to authorize changing the live test post")
+	}
 	client, ok := loadLiveAuth(t)
 	if !ok {
 		t.Skip("skip live test: place a valid auth.json (extension export) in the module root")
@@ -147,7 +150,7 @@ func TestLive_ToggleCommenting_roundTrip(t *testing.T) {
 
 	original, fetchErr := client.FetchCommentingStatus(ctx, liveTestCommentTogglePostID)
 	if fetchErr != nil {
-		t.Logf("FetchCommentingStatus before toggle: %v", fetchErr)
+		t.Fatalf("cannot safely toggle without original status: %v", fetchErr)
 	} else {
 		t.Logf("original comments_disabled=%t", original.CommentsDisabled)
 	}

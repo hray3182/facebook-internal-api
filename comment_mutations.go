@@ -237,7 +237,7 @@ func commentFromNode(node map[string]any) Comment {
 }
 
 func mutationResponseError(parsed map[string]any, key string) error {
-	if graphQLErr := firstGraphQLError(parsed); graphQLErr != nil {
+	if graphQLErr := firstResponseError(parsed); graphQLErr != nil {
 		return graphQLErr
 	}
 	return fmt.Errorf("%s block missing: %w", key, ErrGraphQLResponse)
