@@ -44,7 +44,7 @@
 
     <div class="section">
       <h2>匯出</h2>
-      <p class="hint">請先在瀏覽器開啟並登入 facebook.com，瀏覽貼文／留言讓 extension 擷取 GraphQL 指紋後再匯出。auth.json 可供 probe / capture 使用。</p>
+      <p class="hint">請先在瀏覽器開啟並登入 facebook.com，瀏覽貼文／留言讓 extension 擷取 GraphQL 的 fb_dtsg 與指紋後再匯出。不要只用頁面 HTML 的 token（會過期並觸發 1357004）。</p>
       <button id="download-btn" class="btn btn-primary" disabled>
         下載 cookies.json
       </button>

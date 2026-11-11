@@ -39,13 +39,19 @@
         }
       }
     }
-    if (Object.keys(session).length === 0) {
+    // URLSearchParams.get decodes %3A → ":". GraphQL bodies carry the live
+    // CSRF tokens; HTML DTSGInitialData is often stale and causes 1357004.
+    const fb_dtsg = params.get('fb_dtsg') || '';
+    const lsd = params.get('lsd') || '';
+    if (Object.keys(session).length === 0 && !fb_dtsg && !lsd) {
       return;
     }
     window.postMessage(
       {
         source: 'fbia-session-capture',
         session,
+        fb_dtsg,
+        lsd,
         friendly: params.get('fb_api_req_friendly_name') || '',
         capturedAt: new Date().toISOString(),
       },
@@ -62,6 +68,8 @@
       const body = init && init.body;
       if (typeof body === 'string') {
         captureBody(body);
+      } else if (body instanceof URLSearchParams) {
+        captureBody(body.toString());
       }
     } catch (_) {
       // ignore

@@ -13,6 +13,8 @@ let currentCookies = [];
 let currentUserId = null;
 let currentFbDtsg = null;
 let currentLsd = null;
+let currentTokenSource = null;
+let currentTokensCapturedAt = null;
 let currentSession = null;
 let currentSessionCapturedAt = null;
 
@@ -55,12 +57,18 @@ async function loadCapturedSession() {
   sessionStatus.className = 'status-badge checking';
   currentSession = null;
   currentSessionCapturedAt = null;
+  currentTokenSource = null;
+  currentTokensCapturedAt = null;
 
   try {
     const stored = await storageGet([
       'session',
       'session_captured_at',
       'session_friendly',
+      'fb_dtsg',
+      'lsd',
+      'tokens_captured_at',
+      'tokens_friendly',
     ]);
     if (stored.session && typeof stored.session === 'object' && Object.keys(stored.session).length > 0) {
       currentSession = stored.session;
@@ -72,6 +80,18 @@ async function loadCapturedSession() {
     } else {
       sessionStatus.textContent = '尚未擷取（請瀏覽貼文）';
       sessionStatus.className = 'status-badge not-logged-in';
+    }
+    if (stored.fb_dtsg) {
+      currentFbDtsg = stored.fb_dtsg;
+      currentTokenSource = 'graphql';
+      currentTokensCapturedAt = stored.tokens_captured_at || null;
+    }
+    if (stored.lsd) {
+      currentLsd = stored.lsd;
+      if (!currentTokenSource) {
+        currentTokenSource = 'graphql';
+        currentTokensCapturedAt = stored.tokens_captured_at || null;
+      }
     }
   } catch (error) {
     console.error('Failed to load session:', error);
@@ -187,11 +207,37 @@ async function fetchUserName() {
   }
 }
 
+function tokenBadge(value, source) {
+  if (!value) {
+    return { text: '尚未擷取（請瀏覽貼文）', className: 'status-badge not-logged-in' };
+  }
+  const prefix = value.substring(0, 16) + '...';
+  if (source === 'graphql') {
+    return { text: prefix + ' · GraphQL', className: 'status-badge logged-in' };
+  }
+  return { text: prefix + ' · HTML（可能過期）', className: 'status-badge logged-in' };
+}
+
+function applyTokenStatus() {
+  const dtsg = tokenBadge(currentFbDtsg, currentTokenSource);
+  dtsgStatus.textContent = dtsg.text;
+  dtsgStatus.className = dtsg.className;
+  const lsd = tokenBadge(currentLsd, currentTokenSource);
+  lsdStatus.textContent = lsd.text;
+  lsdStatus.className = lsd.className;
+  updateAuthDownloadState();
+}
+
 async function extractAuthTokens() {
   dtsgStatus.textContent = '提取中...';
   dtsgStatus.className = 'status-badge checking';
   lsdStatus.textContent = '提取中...';
   lsdStatus.className = 'status-badge checking';
+
+  if (currentFbDtsg && currentTokenSource === 'graphql') {
+    applyTokenStatus();
+    return;
+  }
 
   try {
     const tabs = await chrome.tabs.query({ url: '*://*.facebook.com/*' });
@@ -209,26 +255,17 @@ async function extractAuthTokens() {
     });
 
     const tokens = results && results[0] && results[0].result ? results[0].result : null;
-    currentFbDtsg = tokens && tokens.fb_dtsg ? tokens.fb_dtsg : null;
-    currentLsd = tokens && tokens.lsd ? tokens.lsd : null;
-
-    if (currentFbDtsg) {
-      dtsgStatus.textContent = currentFbDtsg.substring(0, 16) + '...';
-      dtsgStatus.className = 'status-badge logged-in';
-    } else {
-      dtsgStatus.textContent = '提取失敗';
-      dtsgStatus.className = 'status-badge not-logged-in';
+    if (!currentFbDtsg && tokens && tokens.fb_dtsg) {
+      currentFbDtsg = tokens.fb_dtsg;
+      currentTokenSource = 'html';
     }
-
-    if (currentLsd) {
-      lsdStatus.textContent = currentLsd.substring(0, 16) + '...';
-      lsdStatus.className = 'status-badge logged-in';
-    } else {
-      lsdStatus.textContent = '提取失敗';
-      lsdStatus.className = 'status-badge not-logged-in';
+    if (!currentLsd && tokens && tokens.lsd) {
+      currentLsd = tokens.lsd;
+      if (!currentTokenSource) {
+        currentTokenSource = 'html';
+      }
     }
-
-    updateAuthDownloadState();
+    applyTokenStatus();
   } catch (error) {
     console.error('Failed to extract auth tokens:', error);
     dtsgStatus.textContent = '提取失敗';
@@ -328,7 +365,11 @@ async function downloadAuth() {
       lsd: currentLsd,
       c_user: currentUserId,
       extracted_at: new Date().toISOString(),
+      tokens_source: currentTokenSource || 'html',
     };
+    if (currentTokensCapturedAt) {
+      authData.tokens_captured_at = currentTokensCapturedAt;
+    }
     if (currentSession && Object.keys(currentSession).length > 0) {
       authData.session = currentSession;
       if (currentSessionCapturedAt) {
@@ -346,7 +387,8 @@ async function downloadAuth() {
     const sessionNote = authData.session
       ? `；session ${Object.keys(authData.session).length} fields`
       : '；尚未擷取 session（請先瀏覽貼文／留言）';
-    showResult('已下載 auth.json（cookies + fb_dtsg + lsd' + sessionNote + '）', 'success');
+    const tokenNote = currentTokenSource === 'graphql' ? '；tokens 來自 GraphQL' : '；tokens 來自 HTML（可能過期，請先瀏覽貼文）';
+    showResult('已下載 auth.json（cookies + fb_dtsg + lsd' + tokenNote + sessionNote + '）', 'success');
   } catch (error) {
     showResult('下載失敗: ' + error.message, 'error');
   } finally {
