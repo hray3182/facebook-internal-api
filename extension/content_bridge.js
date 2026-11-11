@@ -19,19 +19,24 @@ window.addEventListener('message', (event) => {
   }
 
   const capturedAt = data.capturedAt || new Date().toISOString();
+  const user = typeof data.user === 'string' ? data.user : '';
   const update = {};
   if (hasSession) {
     update.session = data.session;
+    update.session_user = user;
     update.session_friendly = data.friendly || '';
     update.session_captured_at = capturedAt;
   }
+  // Each token records its own owner: a capture may carry only one of them.
   if (fbDtsg) {
     update.fb_dtsg = fbDtsg;
+    update.fb_dtsg_user = user;
     update.tokens_captured_at = capturedAt;
     update.tokens_friendly = data.friendly || '';
   }
   if (lsd) {
     update.lsd = lsd;
+    update.lsd_user = user;
     if (!update.tokens_captured_at) {
       update.tokens_captured_at = capturedAt;
     }

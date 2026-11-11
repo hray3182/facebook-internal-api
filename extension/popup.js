@@ -65,12 +65,23 @@ async function loadCapturedSession() {
       'session',
       'session_captured_at',
       'session_friendly',
+      'session_user',
       'fb_dtsg',
       'lsd',
       'tokens_captured_at',
       'tokens_friendly',
+      'fb_dtsg_user',
+      'lsd_user',
     ]);
-    if (stored.session && typeof stored.session === 'object' && Object.keys(stored.session).length > 0) {
+    // Captures are stored globally; after switching accounts they still hold
+    // the previous account's values. Only use captures from the logged-in user.
+    const sessionMatches = capturedByCurrentUser(stored.session_user);
+    const hasStoredSession =
+      stored.session && typeof stored.session === 'object' && Object.keys(stored.session).length > 0;
+    if (hasStoredSession && !sessionMatches) {
+      sessionStatus.textContent = '擷取自其他帳號（請重新整理並瀏覽貼文）';
+      sessionStatus.className = 'status-badge not-logged-in';
+    } else if (hasStoredSession) {
       currentSession = stored.session;
       currentSessionCapturedAt = stored.session_captured_at || null;
       const n = Object.keys(stored.session).length;
@@ -81,12 +92,12 @@ async function loadCapturedSession() {
       sessionStatus.textContent = '尚未擷取（請瀏覽貼文）';
       sessionStatus.className = 'status-badge not-logged-in';
     }
-    if (stored.fb_dtsg) {
+    if (stored.fb_dtsg && capturedByCurrentUser(stored.fb_dtsg_user)) {
       currentFbDtsg = stored.fb_dtsg;
       currentTokenSource = 'graphql';
       currentTokensCapturedAt = stored.tokens_captured_at || null;
     }
-    if (stored.lsd) {
+    if (stored.lsd && capturedByCurrentUser(stored.lsd_user)) {
       currentLsd = stored.lsd;
       if (!currentTokenSource) {
         currentTokenSource = 'graphql';
@@ -98,6 +109,10 @@ async function loadCapturedSession() {
     sessionStatus.textContent = '讀取失敗: ' + (error && error.message ? error.message : String(error));
     sessionStatus.className = 'status-badge not-logged-in';
   }
+}
+
+function capturedByCurrentUser(capturedUser) {
+  return Boolean(currentUserId) && capturedUser === currentUserId;
 }
 
 async function ensureSessionCaptureInjected() {
@@ -139,7 +154,6 @@ async function checkLoginStatus() {
   currentLsd = null;
   updateAuthDownloadState();
   await ensureSessionCaptureInjected();
-  await loadCapturedSession();
 
   try {
     const cookies = await chrome.cookies.getAll({ domain: '.facebook.com' });
@@ -161,6 +175,7 @@ async function checkLoginStatus() {
     const userCookie = currentCookies.find((c) => c.name === 'c_user');
     currentUserId = userCookie ? userCookie.value : null;
     cookieCount.textContent = currentCookies.length;
+    await loadCapturedSession();
 
     if (currentUserId && currentCookies.length > 0) {
       loginStatus.textContent = '已登入';

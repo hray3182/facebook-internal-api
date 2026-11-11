@@ -52,6 +52,8 @@
         session,
         fb_dtsg,
         lsd,
+        // Account that sent this request; the popup drops captures from other accounts.
+        user: params.get('__user') || params.get('av') || '',
         friendly: params.get('fb_api_req_friendly_name') || '',
         capturedAt: new Date().toISOString(),
       },
