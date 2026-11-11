@@ -2,6 +2,7 @@ package fbia
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 )
 
@@ -96,6 +97,24 @@ func jsonStr(m map[string]any, key string) string {
 	}
 	v, _ := m[key].(string)
 	return v
+}
+
+func jsonInt64(m map[string]any, key string) int64 {
+	if m == nil {
+		return 0
+	}
+	switch v := m[key].(type) {
+	case float64:
+		return int64(v)
+	case json.Number:
+		n, _ := v.Int64()
+		return n
+	case string:
+		n, _ := strconv.ParseInt(v, 10, 64)
+		return n
+	default:
+		return 0
+	}
 }
 
 func jsonFloat(m map[string]any, key string) float64 {

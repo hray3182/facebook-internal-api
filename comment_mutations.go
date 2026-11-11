@@ -218,24 +218,6 @@ func parseDeleteCommentResponse(body string) (*DeleteCommentResult, error) {
 	}, nil
 }
 
-func commentFromNode(node map[string]any) Comment {
-	fb := jsonMap(node, "feedback")
-	bodyMap := jsonMap(node, "body")
-	reactors := jsonMap(fb, "reactors")
-	expInfo := jsonMap(fb, "expansion_info")
-	author := jsonMap(node, "author")
-
-	return Comment{
-		CommentID:      jsonStr(node, "id"),
-		AuthorID:       jsonStr(author, "id"),
-		AuthorName:     jsonStr(author, "name"),
-		Text:           jsonStr(bodyMap, "text"),
-		ReactionCount:  jsonStr(reactors, "count_reduced"),
-		FeedbackID:     jsonStr(fb, "id"),
-		ExpansionToken: jsonStr(expInfo, "expansion_token"),
-	}
-}
-
 func mutationResponseError(parsed map[string]any, key string) error {
 	if graphQLErr := firstResponseError(parsed); graphQLErr != nil {
 		return graphQLErr

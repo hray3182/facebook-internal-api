@@ -226,6 +226,44 @@ func TestListComments_retries_when_graphql_error_hides_comments(t *testing.T) {
 	}
 }
 
+func TestListComments_exposesGraphQLCommentFields(t *testing.T) {
+	transport := &sequenceRoundTripper{t: t, responses: []string{commentsGraphQLResponse()}}
+	client := NewClient(
+		map[string]string{"c_user": "123", "xs": "session"},
+		"token",
+		WithHTTPClient(&http.Client{Transport: transport}),
+	)
+	client.retryDelay = 0
+
+	comments, err := Collect(client.ListComments(context.Background(), FeedbackID("36674113645566126")))
+	if err != nil {
+		t.Fatalf("ListComments() error = %v", err)
+	}
+	if len(comments) != 1 {
+		t.Fatalf("len(comments) = %d, want 1", len(comments))
+	}
+	c := comments[0]
+	if c.CommentID != "c1" {
+		t.Fatalf("CommentID = %q, want c1", c.CommentID)
+	}
+	if c.LegacyFbid != "37581224671521681" {
+		t.Fatalf("LegacyFbid = %q", c.LegacyFbid)
+	}
+	if c.CreatedTime != 1786459774 {
+		t.Fatalf("CreatedTime = %d, want 1786459774", c.CreatedTime)
+	}
+	if c.AuthorURL != "https://www.facebook.com/alice" {
+		t.Fatalf("AuthorURL = %q", c.AuthorURL)
+	}
+	var node map[string]any
+	if err := json.Unmarshal(c.Node, &node); err != nil {
+		t.Fatalf("Node: %v", err)
+	}
+	if node["spam_display_mode"] != "NONE" {
+		t.Fatalf("Node missing spam_display_mode: %#v", node["spam_display_mode"])
+	}
+}
+
 func TestListComments_includes_session_form_fingerprint_fields(t *testing.T) {
 	transport := &captureRoundTripper{
 		t:    t,
@@ -627,7 +665,7 @@ func commentsGraphQLResponseWithCursor(cursor, text string) string {
 	if cursor != "" {
 		pageInfo = `{"end_cursor":"` + cursor + `","has_next_page":true}`
 	}
-	return `{"data":{"node":{"__typename":"Feedback","comment_rendering_instance_for_feed_location":{"comments":{"edges":[{"node":{"id":"c1","author":{"id":"u1","name":"Alice"},"body":{"text":"` + text + `"},"feedback":{"id":"comment-feedback","expansion_info":{"expansion_token":"token"},"reactors":{"count_reduced":"0"}}}}],"page_info":` + pageInfo + `}}}}}`
+	return `{"data":{"node":{"__typename":"Feedback","comment_rendering_instance_for_feed_location":{"comments":{"edges":[{"node":{"id":"c1","legacy_fbid":"37581224671521681","created_time":1786459774,"spam_display_mode":"NONE","author":{"id":"u1","name":"Alice","url":"https://www.facebook.com/alice"},"body":{"text":"` + text + `"},"feedback":{"id":"comment-feedback","expansion_info":{"expansion_token":"token"},"reactors":{"count_reduced":"0"}}}}],"page_info":` + pageInfo + `}}}}}`
 }
 
 func dialogCommentsResponse(hasNext bool) string {

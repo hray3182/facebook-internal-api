@@ -1,5 +1,7 @@
 package fbia
 
+import "encoding/json"
+
 // Post represents a Facebook post from a page timeline or group feed.
 type Post struct {
 	PostID       string `json:"post_id"`
@@ -23,27 +25,39 @@ type CommentingStatus struct {
 	CommentsDisabled bool   `json:"comments_disabled"`
 }
 
-// Comment represents a top-level comment on a post.
+// Comment is a top-level comment. Typed fields are convenience accessors;
+// Node is the unmodified GraphQL comment object so callers can read any field.
 type Comment struct {
 	CommentID  string `json:"comment_id,omitempty"`
+	LegacyFbid string `json:"legacy_fbid,omitempty"`
 	AuthorID   string `json:"author_id,omitempty"`
 	AuthorName string `json:"author_name,omitempty"`
+	AuthorURL  string `json:"author_url,omitempty"`
 
 	Text          string `json:"text"`
+	CreatedTime   int64  `json:"created_time,omitempty"` // unix seconds
 	ReactionCount string `json:"reaction_count"`
 
 	// FeedbackID and ExpansionToken are needed to fetch replies via Client.FetchReplies.
 	FeedbackID     string `json:"feedback_id"`
 	ExpansionToken string `json:"expansion_token"`
+
+	Node json.RawMessage `json:"node,omitempty"`
 }
 
-// Reply represents a reply to a comment.
+// Reply is a reply to a comment. Node is the unmodified GraphQL reply object.
 type Reply struct {
+	CommentID  string `json:"comment_id,omitempty"`
+	LegacyFbid string `json:"legacy_fbid,omitempty"`
 	AuthorID   string `json:"author_id,omitempty"`
 	AuthorName string `json:"author_name,omitempty"`
+	AuthorURL  string `json:"author_url,omitempty"`
 
 	Text          string `json:"text"`
+	CreatedTime   int64  `json:"created_time,omitempty"`
 	ReactionCount string `json:"reaction_count"`
+
+	Node json.RawMessage `json:"node,omitempty"`
 }
 
 // Media represents a photo or video attachment on a post.

@@ -2,6 +2,7 @@ package fbia
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"iter"
@@ -344,25 +345,7 @@ func parseCommentsResponse(body string) ([]Comment, string, *PostInfo, error) {
 			postInfo = extractPostInfo(node)
 		}
 
-		bodyMap := jsonMap(node, "body")
-		expInfo := jsonMap(fb, "expansion_info")
-		reactors := jsonMap(fb, "reactors")
-		author := jsonMap(node, "author")
-
-		commentID := jsonStr(node, "id")
-		if commentID == "" {
-			commentID = jsonStr(node, "legacy_fbid")
-		}
-
-		comments = append(comments, Comment{
-			CommentID:      commentID,
-			AuthorID:       jsonStr(author, "id"),
-			AuthorName:     jsonStr(author, "name"),
-			Text:           jsonStr(bodyMap, "text"),
-			ReactionCount:  jsonStr(reactors, "count_reduced"),
-			FeedbackID:     jsonStr(fb, "id"),
-			ExpansionToken: jsonStr(expInfo, "expansion_token"),
-		})
+		comments = append(comments, commentFromNode(node))
 	}
 
 	pageInfo := jsonMap(commentsBlock, "page_info")
@@ -372,6 +355,32 @@ func parseCommentsResponse(body string) ([]Comment, string, *PostInfo, error) {
 		nextCursor = ""
 	}
 	return comments, nextCursor, postInfo, nil
+}
+
+func commentFromNode(node map[string]any) Comment {
+	fb := jsonMap(node, "feedback")
+	bodyMap := jsonMap(node, "body")
+	reactors := jsonMap(fb, "reactors")
+	expInfo := jsonMap(fb, "expansion_info")
+	author := jsonMap(node, "author")
+	commentID := jsonStr(node, "id")
+	if commentID == "" {
+		commentID = jsonStr(node, "legacy_fbid")
+	}
+	raw, _ := json.Marshal(node)
+	return Comment{
+		CommentID:      commentID,
+		LegacyFbid:     jsonStr(node, "legacy_fbid"),
+		AuthorID:       jsonStr(author, "id"),
+		AuthorName:     jsonStr(author, "name"),
+		AuthorURL:      jsonStr(author, "url"),
+		Text:           jsonStr(bodyMap, "text"),
+		CreatedTime:    jsonInt64(node, "created_time"),
+		ReactionCount:  jsonStr(reactors, "count_reduced"),
+		FeedbackID:     jsonStr(fb, "id"),
+		ExpansionToken: jsonStr(expInfo, "expansion_token"),
+		Node:           raw,
+	}
 }
 
 func findCommentsBlock(parsed map[string]any) map[string]any {
@@ -467,20 +476,35 @@ func parseRepliesResponse(body string) ([]Reply, error) {
 	for _, e := range jsonSlice(repliesConn, "edges") {
 		edge, _ := e.(map[string]any)
 		node := jsonMap(edge, "node")
-		fb := jsonMap(node, "feedback")
-
-		bodyMap := jsonMap(node, "body")
-		reactors := jsonMap(fb, "reactors")
-		author := jsonMap(node, "author")
-
-		replies = append(replies, Reply{
-			AuthorID:      jsonStr(author, "id"),
-			AuthorName:    jsonStr(author, "name"),
-			Text:          jsonStr(bodyMap, "text"),
-			ReactionCount: jsonStr(reactors, "count_reduced"),
-		})
+		if node == nil {
+			continue
+		}
+		replies = append(replies, replyFromNode(node))
 	}
 	return replies, nil
+}
+
+func replyFromNode(node map[string]any) Reply {
+	fb := jsonMap(node, "feedback")
+	bodyMap := jsonMap(node, "body")
+	reactors := jsonMap(fb, "reactors")
+	author := jsonMap(node, "author")
+	commentID := jsonStr(node, "id")
+	if commentID == "" {
+		commentID = jsonStr(node, "legacy_fbid")
+	}
+	raw, _ := json.Marshal(node)
+	return Reply{
+		CommentID:     commentID,
+		LegacyFbid:    jsonStr(node, "legacy_fbid"),
+		AuthorID:      jsonStr(author, "id"),
+		AuthorName:    jsonStr(author, "name"),
+		AuthorURL:     jsonStr(author, "url"),
+		Text:          jsonStr(bodyMap, "text"),
+		CreatedTime:   jsonInt64(node, "created_time"),
+		ReactionCount: jsonStr(reactors, "count_reduced"),
+		Node:          raw,
+	}
 }
 
 func extractPostInfo(commentNode map[string]any) *PostInfo {
