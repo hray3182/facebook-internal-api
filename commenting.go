@@ -13,14 +13,16 @@ const (
 
 // DisableCommenting turns off commenting on a post.
 //
-// id may be a FeedbackID, a bare post id, or a plain Comet StoryID.
+// id may be a FeedbackID, a bare post id, or a plain Comet StoryID. Numeric
+// ids cost one extra dialog request to look up the pfbid feedback id.
 func (c *Client) DisableCommenting(ctx context.Context, id string) (*CommentingStatus, error) {
 	return c.setCommentingDisabled(ctx, id, true)
 }
 
 // EnableCommenting turns on commenting on a post.
 //
-// id may be a FeedbackID, a bare post id, or a plain Comet StoryID.
+// id may be a FeedbackID, a bare post id, or a plain Comet StoryID. Numeric
+// ids cost one extra dialog request to look up the pfbid feedback id.
 func (c *Client) EnableCommenting(ctx context.Context, id string) (*CommentingStatus, error) {
 	return c.setCommentingDisabled(ctx, id, false)
 }
@@ -30,22 +32,24 @@ func (c *Client) EnableCommenting(ctx context.Context, id string) (*CommentingSt
 // Uses CometSinglePostDialogContentQuery (CommentsList omits the post-level
 // flag). Group feed payloads also expose this as Post.CommentsDisabled.
 func (c *Client) FetchCommentingStatus(ctx context.Context, id string) (*CommentingStatus, error) {
-	feedbackID, err := c.resolveFeedbackID(id)
+	storyID, err := c.resolveStoryIDForDialog(id)
 	if err != nil {
 		return nil, err
 	}
-
-	storyID, err := c.resolveStoryIDForDialog(id, feedbackID)
+	status, err := c.fetchDialogCommentingStatus(ctx, storyID, "")
 	if err != nil {
 		return nil, err
 	}
+	c.feedbackIDs.Store(storyID, status.FeedbackID)
+	return status, nil
+}
 
+func (c *Client) fetchDialogCommentingStatus(ctx context.Context, storyID, fallbackFeedbackID string) (*CommentingStatus, error) {
 	body, err := c.doRequest(ctx, c.docIDs.CommentsDialog, commentsDialogVariables(storyID), commentsDialogFriendlyName)
 	if err != nil {
 		return nil, fmt.Errorf("commenting status: %w", err)
 	}
-
-	status, err := parseCommentingStatusResponse(body, feedbackID)
+	status, err := parseCommentingStatusResponse(body, fallbackFeedbackID)
 	if err != nil {
 		return nil, fmt.Errorf("parse commenting status: %w", err)
 	}
@@ -53,7 +57,7 @@ func (c *Client) FetchCommentingStatus(ctx context.Context, id string) (*Comment
 }
 
 func (c *Client) setCommentingDisabled(ctx context.Context, id string, disabled bool) (*CommentingStatus, error) {
-	feedbackID, err := c.resolveFeedbackID(id)
+	feedbackID, err := c.resolveFeedbackID(ctx, id)
 	if err != nil {
 		return nil, err
 	}

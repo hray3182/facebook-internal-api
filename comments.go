@@ -58,7 +58,7 @@ func (e *GraphQLError) Is(target error) bool {
 // Uses CommentsListComponentsPaginationQuery (same approach as fbGraber).
 func (c *Client) ListComments(ctx context.Context, id string) iter.Seq2[Comment, error] {
 	return func(yield func(Comment, error) bool) {
-		feedbackID, err := c.resolveFeedbackID(id)
+		feedbackID, err := c.resolveFeedbackID(ctx, id)
 		if err != nil {
 			yield(Comment{}, err)
 			return
@@ -108,7 +108,7 @@ func (c *Client) FindGroupPost(ctx context.Context, groupID, postID string) (*Po
 // FetchPostInfo extracts post metadata (story ID, first media ID).
 // Prefers CommentsList parent_post_story; falls back to CommentsDialog when configured.
 func (c *Client) FetchPostInfo(ctx context.Context, id string) (*PostInfo, error) {
-	feedbackID, err := c.resolveFeedbackID(id)
+	feedbackID, err := c.resolveFeedbackID(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +130,7 @@ func (c *Client) FetchPostInfo(ctx context.Context, id string) (*PostInfo, error
 		return nil, fmt.Errorf("post info not found in comments response")
 	}
 
-	storyID, err := c.resolveStoryIDForDialog(id, feedbackID)
+	storyID, err := c.resolveStoryIDForDialog(id)
 	if err != nil {
 		return nil, err
 	}
@@ -158,40 +158,82 @@ func (c *Client) FetchReplies(ctx context.Context, comment Comment) ([]Reply, er
 	return parseRepliesResponse(body)
 }
 
-func (c *Client) resolveFeedbackID(id string) (string, error) {
-	if _, err := PostIDFromFeedback(id); err == nil {
-		return id, nil
-	}
-	if IsStoryID(id) {
-		_, postID, err := AuthorPostFromStory(id)
-		if err != nil {
-			return "", fmt.Errorf("comments list needs FeedbackID or plain StoryID: %w", err)
-		}
-		return FeedbackID(postID), nil
-	}
-	if id == "" {
-		return "", fmt.Errorf("resolve feedback id: empty id")
-	}
-	// Bare post id.
-	if isAllDigits(id) {
-		return FeedbackID(id), nil
-	}
-	return "", fmt.Errorf("resolve feedback id: unsupported id %q", id)
+// postRef is what an id passed by a caller tells us about a post.
+type postRef struct {
+	feedbackID string // pfbid-based feedback id, usable as-is
+	storyID    string // dialog story id, used to look up feedbackID
 }
 
-func (c *Client) resolveStoryIDForDialog(id, feedbackID string) (string, error) {
-	if IsStoryID(id) {
-		return id, nil
+// parsePostRef accepts a pfbid FeedbackID, a numeric FeedbackID, a plain
+// Comet StoryID, or a bare numeric post id.
+func (c *Client) parsePostRef(id string) (postRef, error) {
+	if id == "" {
+		return postRef{}, fmt.Errorf("resolve post: empty id")
 	}
-	postID, err := PostIDFromFeedback(feedbackID)
+	if inner, err := PostIDFromFeedback(id); err == nil {
+		if !isAllDigits(inner) {
+			return postRef{feedbackID: id}, nil
+		}
+		return c.postRefFromPostID(inner)
+	}
+	if IsStoryID(id) {
+		return postRef{storyID: id}, nil
+	}
+	if isAllDigits(id) {
+		return c.postRefFromPostID(id)
+	}
+	return postRef{}, fmt.Errorf("resolve post: unsupported id %q", id)
+}
+
+func (c *Client) postRefFromPostID(postID string) (postRef, error) {
+	// Facebook resolves the story by post id; the author segment does not
+	// have to match the real author, but it must be a non-empty user id.
+	authorID := c.userID()
+	if authorID == "" || authorID == "0" {
+		return postRef{}, fmt.Errorf("resolve post: missing c_user cookie")
+	}
+	return postRef{storyID: StoryID(authorID, postID)}, nil
+}
+
+// resolveFeedbackID returns a feedback id Facebook accepts.
+//
+// Since 2026-11 Facebook only resolves pfbid-based feedback ids
+// (base64 "feedback:pfbid…"); base64 "feedback:<numeric post id>" returns
+// node:null for queries and "Incorrect Query" (1675002) for mutations.
+// Numeric ids are looked up once through the post dialog and cached.
+func (c *Client) resolveFeedbackID(ctx context.Context, id string) (string, error) {
+	ref, err := c.parsePostRef(id)
 	if err != nil {
 		return "", err
 	}
-	authorID := c.userID()
-	if authorID == "" || authorID == "0" {
-		return "", fmt.Errorf("resolve story id: missing c_user cookie for author")
+	if ref.feedbackID != "" {
+		return ref.feedbackID, nil
 	}
-	return StoryID(authorID, postID), nil
+	if cached, ok := c.feedbackIDs.Load(ref.storyID); ok {
+		return cached.(string), nil
+	}
+	status, err := c.fetchDialogCommentingStatus(ctx, ref.storyID, "")
+	if err != nil {
+		return "", fmt.Errorf("resolve feedback id: %w", err)
+	}
+	if _, err := PostIDFromFeedback(status.FeedbackID); err != nil {
+		return "", fmt.Errorf("resolve feedback id: dialog returned %q: %w", status.FeedbackID, ErrGraphQLResponse)
+	}
+	c.feedbackIDs.Store(ref.storyID, status.FeedbackID)
+	return status.FeedbackID, nil
+}
+
+// resolveStoryIDForDialog returns the story id for CometSinglePostDialogContentQuery.
+// A pfbid FeedbackID cannot be turned back into a story id; pass a post id or StoryID.
+func (c *Client) resolveStoryIDForDialog(id string) (string, error) {
+	ref, err := c.parsePostRef(id)
+	if err != nil {
+		return "", err
+	}
+	if ref.storyID == "" {
+		return "", fmt.Errorf("resolve story id: %q is a pfbid feedback id; pass the post id or StoryID", id)
+	}
+	return ref.storyID, nil
 }
 
 func commentsListVariables(feedbackID, cursor string) map[string]any {
@@ -205,6 +247,7 @@ func commentsListVariables(feedbackID, cursor string) map[string]any {
 		"feedLocation":         "POST_PERMALINK_DIALOG",
 		"focusCommentID":       nil,
 		"scale":                1,
+		"targetDialect":        nil,
 		"useDefaultActor":      false,
 		"id":                   feedbackID,
 		"__relay_internal__pv__CometUFICommentAutoTranslationTyperelayprovider":        "AUTO_TRANSLATE",
@@ -281,7 +324,7 @@ func (c *Client) fetchCommentsDialog(ctx context.Context, storyID string) ([]Com
 }
 
 func commentsDialogVariables(storyID string) map[string]any {
-	return map[string]any{
+	return withRelayProviders(map[string]any{
 		"feedbackSource":                2,
 		"feedLocation":                  "POST_PERMALINK_DIALOG",
 		"focusCommentID":                nil,
@@ -291,7 +334,7 @@ func commentsDialogVariables(storyID string) map[string]any {
 		"shouldChangeNodeFieldName":     true,
 		"storyID":                       storyID,
 		"useDefaultActor":               false,
-	}
+	}, postDialogRelayProviders)
 }
 
 func (c *Client) waitBeforeCommentsRetry(ctx context.Context, attempt int, lastErr error) error {

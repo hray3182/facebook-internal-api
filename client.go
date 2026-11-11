@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -30,17 +31,19 @@ type DocIDs struct {
 	EnableCommenting  string // useCometFeedStoryEnableCommentingMutation
 }
 
-// DefaultDocIDs contains the doc_id values known to work as of 2026-07.
+// DefaultDocIDs contains the doc_id values known to work as of 2026-11-11.
+// Replies and Photos were not re-captured on 2026-11-11; the toggles were
+// re-captured and are unchanged.
 // Comments list values are aligned with fbGraber (CommentsListComponentsPaginationQuery).
 var DefaultDocIDs = DocIDs{
-	Posts:             "25430544756617998",
-	Groups:            "27559756597026523",
-	Comments:          "27806180149070312",
-	CommentsDialog:    "27808862888770037",
+	Posts:             "29524054653885841",
+	Groups:            "28893883580305844",
+	Comments:          "29013552121638010",
+	CommentsDialog:    "29428722580116736",
 	Replies:           "26570577339199586",
 	Photos:            "25998240949874449",
-	CreateComment:     "27734094336250655",
-	DeleteComment:     "27386493047638332",
+	CreateComment:     "29093024710318319",
+	DeleteComment:     "28962021026784712",
 	DisableCommenting: "27824746487117964",
 	EnableCommenting:  "27188298634159971",
 }
@@ -70,6 +73,7 @@ type Client struct {
 	sessionForm map[string]string
 	userAgent   string
 	docIDs      DocIDs
+	feedbackIDs sync.Map // story id -> pfbid feedback id
 	retryDelay  time.Duration
 }
 

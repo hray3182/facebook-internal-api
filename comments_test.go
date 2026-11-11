@@ -120,7 +120,7 @@ func TestListComments_does_not_retry_unauthenticated(t *testing.T) {
 	)
 	client.retryDelay = 0
 
-	_, err := Collect(client.ListComments(context.Background(), FeedbackID("36674113645566126")))
+	_, err := Collect(client.ListComments(context.Background(), FeedbackID("pfbid0TestComments")))
 
 	if !errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("ListComments() error = %v, want ErrUnauthenticated", err)
@@ -138,7 +138,7 @@ func TestListComments_maps_http_401_to_unauthenticated(t *testing.T) {
 		WithHTTPClient(&http.Client{Transport: transport}),
 	)
 
-	_, err := Collect(client.ListComments(context.Background(), FeedbackID("36674113645566126")))
+	_, err := Collect(client.ListComments(context.Background(), FeedbackID("pfbid0TestComments")))
 
 	if !errors.Is(err, ErrUnauthenticated) {
 		t.Fatalf("ListComments() error = %v, want ErrUnauthenticated", err)
@@ -160,7 +160,7 @@ func TestListComments_paginates_across_pages(t *testing.T) {
 	)
 	client.retryDelay = 0
 
-	comments, err := Collect(client.ListComments(context.Background(), FeedbackID("36674113645566126")))
+	comments, err := Collect(client.ListComments(context.Background(), FeedbackID("pfbid0TestComments")))
 	if err != nil {
 		t.Fatalf("ListComments() error = %v", err)
 	}
@@ -187,7 +187,7 @@ func TestStoryID_roundtrip(t *testing.T) {
 	if author != "100007461752812" || post != "1722750337980889" {
 		t.Fatalf("got author=%q post=%q", author, post)
 	}
-	if IsStoryID(FeedbackID("1722750337980889")) {
+	if IsStoryID(FeedbackID("pfbid0TestPost")) {
 		t.Fatal("FeedbackID should not be IsStoryID")
 	}
 }
@@ -209,7 +209,7 @@ func TestListComments_retries_when_graphql_error_hides_comments(t *testing.T) {
 	client.retryDelay = 0
 
 	// When
-	comments, err := Collect(client.ListComments(context.Background(), FeedbackID("36674113645566126")))
+	comments, err := Collect(client.ListComments(context.Background(), FeedbackID("pfbid0TestComments")))
 
 	// Then
 	if err != nil {
@@ -235,7 +235,7 @@ func TestListComments_exposesGraphQLCommentFields(t *testing.T) {
 	)
 	client.retryDelay = 0
 
-	comments, err := Collect(client.ListComments(context.Background(), FeedbackID("36674113645566126")))
+	comments, err := Collect(client.ListComments(context.Background(), FeedbackID("pfbid0TestComments")))
 	if err != nil {
 		t.Fatalf("ListComments() error = %v", err)
 	}
@@ -283,7 +283,7 @@ func TestListComments_includes_session_form_fingerprint_fields(t *testing.T) {
 		}),
 	)
 
-	_, err := Collect(client.ListComments(context.Background(), FeedbackID("36674113645566126")))
+	_, err := Collect(client.ListComments(context.Background(), FeedbackID("pfbid0TestComments")))
 	if err != nil {
 		t.Fatalf("ListComments() error = %v", err)
 	}
@@ -395,14 +395,14 @@ func TestDisableCommenting_sends_disable_mutation_when_id_valid(t *testing.T) {
 		WithDocIDs(DocIDs{DisableCommenting: "disable-doc"}),
 	)
 
-	status, err := client.DisableCommenting(context.Background(), "1722750337980889")
+	status, err := client.DisableCommenting(context.Background(), FeedbackID("pfbid0TestPost"))
 	if err != nil {
 		t.Fatalf("DisableCommenting() error = %v", err)
 	}
 	if !status.CommentsDisabled {
 		t.Fatal("CommentsDisabled = false, want true")
 	}
-	if status.FeedbackID != FeedbackID("1722750337980889") {
+	if status.FeedbackID != FeedbackID("pfbid0TestPost") {
 		t.Fatalf("FeedbackID = %q, want encoded feedback id", status.FeedbackID)
 	}
 	if transport.req.Header.Get("X-FB-Friendly-Name") != "useCometFeedStoryDisableCommentingMutation" {
@@ -419,7 +419,7 @@ func TestDisableCommenting_sends_disable_mutation_when_id_valid(t *testing.T) {
 	if jsonStr(mutationInput, "actor_id") != "100007461752812" {
 		t.Fatalf("actor_id = %q", jsonStr(mutationInput, "actor_id"))
 	}
-	if jsonStr(mutationInput, "feedback_id") != FeedbackID("1722750337980889") {
+	if jsonStr(mutationInput, "feedback_id") != FeedbackID("pfbid0TestPost") {
 		t.Fatalf("feedback_id = %q", jsonStr(mutationInput, "feedback_id"))
 	}
 	if jsonStr(mutationInput, "client_mutation_id") == "" {
@@ -439,7 +439,7 @@ func TestEnableCommenting_sends_enable_mutation_when_id_valid(t *testing.T) {
 		WithDocIDs(DocIDs{EnableCommenting: "enable-doc"}),
 	)
 
-	status, err := client.EnableCommenting(context.Background(), FeedbackID("1722750337980889"))
+	status, err := client.EnableCommenting(context.Background(), FeedbackID("pfbid0TestPost"))
 	if err != nil {
 		t.Fatalf("EnableCommenting() error = %v", err)
 	}
@@ -479,7 +479,7 @@ func TestDisableCommenting_returns_error_when_mutation_block_missing(t *testing.
 		WithHTTPClient(&http.Client{Transport: transport}),
 	)
 
-	_, err := client.DisableCommenting(context.Background(), "1722750337980889")
+	_, err := client.DisableCommenting(context.Background(), FeedbackID("pfbid0TestPost"))
 	if !errors.Is(err, ErrGraphQLResponse) {
 		t.Fatalf("error = %v, want ErrGraphQLResponse", err)
 	}
@@ -503,7 +503,7 @@ func TestFetchCommentingStatus_reads_have_comments_been_disabled(t *testing.T) {
 	if !status.CommentsDisabled {
 		t.Fatal("CommentsDisabled = false, want true")
 	}
-	if status.FeedbackID != FeedbackID("1722750337980889") {
+	if status.FeedbackID != FeedbackID("pfbid0TestPost") {
 		t.Fatalf("FeedbackID = %q", status.FeedbackID)
 	}
 	if transport.req.Header.Get("X-FB-Friendly-Name") != "CometSinglePostDialogContentQuery" {
@@ -533,7 +533,7 @@ func TestExtractPost_reads_comments_disabled_from_ufi(t *testing.T) {
 		"post_id": "1722750337980889",
 		"id":      "UzpfSTEwMDAwNzQ2MTc1MjgxMjpWSzoxNzIyNzUwMzM3OTgwODg5",
 		"feedback": map[string]any{
-			"id": FeedbackID("1722750337980889"),
+			"id": FeedbackID("pfbid0TestPost"),
 		},
 		"comet_sections": map[string]any{
 			"feedback": map[string]any{
@@ -729,11 +729,11 @@ func commentingToggleGraphQLResponse(disabled bool) string {
 	if disabled {
 		key = "feedback_disable_commenting"
 	}
-	return `{"data":{"` + key + `":{"feedback":{"id":"` + FeedbackID("1722750337980889") + `","have_comments_been_disabled":` + boolJSON(disabled) + `}}}}`
+	return `{"data":{"` + key + `":{"feedback":{"id":"` + FeedbackID("pfbid0TestPost") + `","have_comments_been_disabled":` + boolJSON(disabled) + `}}}}`
 }
 
 func commentingStatusGraphQLResponse(disabled bool) string {
-	return `{"data":{"node_v2":{"comet_sections":{"feedback":{"story":{"story_ufi_container":{"story":{"feedback_context":{"feedback_target_with_context":{"comment_list_renderer":{"feedback":{"id":"` + FeedbackID("1722750337980889") + `","have_comments_been_disabled":` + boolJSON(disabled) + `}}}}}}}}}}}}`
+	return `{"data":{"node_v2":{"comet_sections":{"feedback":{"story":{"story_ufi_container":{"story":{"feedback_context":{"feedback_target_with_context":{"comment_list_renderer":{"feedback":{"id":"` + FeedbackID("pfbid0TestPost") + `","have_comments_been_disabled":` + boolJSON(disabled) + `}}}}}}}}}}}}`
 }
 
 func boolJSON(v bool) string {

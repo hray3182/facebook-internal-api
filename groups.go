@@ -13,20 +13,24 @@ func (c *Client) ListGroupPosts(ctx context.Context, groupID string) iter.Seq2[P
 
 		for {
 			variables := map[string]any{
-				"count":                        3,
-				"cursor":                       nilIfEmpty(cursor),
-				"feedLocation":                 "GROUP",
-				"feedType":                     "DISCUSSION",
-				"feedbackSource":               0,
-				"filterTopicId":                nil,
-				"focusCommentID":               nil,
+				"count":                         3,
+				"cursor":                        nilIfEmpty(cursor),
+				"feedLocation":                  "GROUP",
+				"feedType":                      "DISCUSSION",
+				"feedbackSource":                0,
+				"filterTopicId":                 nil,
+				"focusCommentID":                nil,
 				"privacySelectorRenderLocation": "COMET_STREAM",
-				"renderLocation":               "group",
-				"scale":                        2,
-				"stream_initial_count":         1,
-				"useDefaultActor":              false,
-				"id":                           groupID,
+				"renderLocation":                "group",
+				"scale":                         2,
+				"stream_initial_count":          1,
+				"useDefaultActor":               false,
+				"id":                            groupID,
+				"youthIntegrityHostID":          groupID,
+				"sortingSetting":                "RECENT_ACTIVITY",
+				"referringStoryRenderLocation":  nil,
 			}
+			variables = withRelayProviders(variables, groupFeedRelayProviders)
 
 			body, err := c.doRequest(ctx, c.docIDs.Groups, variables, "GroupsCometFeedRegularStoriesPaginationQuery")
 			if err != nil {
