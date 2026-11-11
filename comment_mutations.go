@@ -49,6 +49,13 @@ func (c *Client) CreateComment(ctx context.Context, input CreateCommentInput) (*
 		return nil, err
 	}
 
+	// Facebook only accepts pfbid feedback ids; look up numeric ones first.
+	feedbackID, err := c.resolveFeedbackID(ctx, input.FeedbackID)
+	if err != nil {
+		return nil, fmt.Errorf("create comment: %w", err)
+	}
+	input.FeedbackID = feedbackID
+
 	variables, err := c.createCommentVariables(input)
 	if err != nil {
 		return nil, fmt.Errorf("build create comment variables: %w", err)
@@ -128,21 +135,22 @@ func (c *Client) createCommentVariables(input CreateCommentInput) (map[string]an
 		"feedbackSource": 0,
 		"groupID":        nilIfEmpty(input.GroupID),
 		"input": map[string]any{
-			"actor_id":              c.userID(),
-			"client_mutation_id":    fmt.Sprintf("%d", time.Now().UnixNano()),
-			"attachments":           nil,
-			"feedback_id":           input.FeedbackID,
-			"formatting_style":      nil,
-			"message":               map[string]any{"ranges": []map[string]any{}, "text": input.Text},
-			"reply_target_clicked":  false,
-			"attribution_id_v2":     nilIfEmpty(input.AttributionID),
-			"vod_video_timestamp":   nil,
-			"feedback_referrer":     feedbackReferrer,
-			"is_tracking_encrypted": len(input.Tracking) > 0,
-			"tracking":              trackingOrEmpty(input.Tracking),
-			"feedback_source":       feedbackSource,
-			"idempotence_token":     "client:" + idempotenceID,
-			"session_id":            sessionID,
+			"actor_id":                       c.userID(),
+			"client_mutation_id":             fmt.Sprintf("%d", time.Now().UnixNano()),
+			"attachments":                    nil,
+			"feedback_id":                    input.FeedbackID,
+			"formatting_style":               nil,
+			"is_inline_vote_enabled_for_qna": false,
+			"message":                        map[string]any{"ranges": []map[string]any{}, "text": input.Text},
+			"reply_target_clicked":           false,
+			"attribution_id_v2":              nilIfEmpty(input.AttributionID),
+			"vod_video_timestamp":            nil,
+			"feedback_referrer":              feedbackReferrer,
+			"is_tracking_encrypted":          len(input.Tracking) > 0,
+			"tracking":                       trackingOrEmpty(input.Tracking),
+			"feedback_source":                feedbackSource,
+			"idempotence_token":              "client:" + idempotenceID,
+			"session_id":                     sessionID,
 		},
 		"inviteShortLinkKey":    nil,
 		"renderLocation":        nil,
@@ -152,7 +160,7 @@ func (c *Client) createCommentVariables(input CreateCommentInput) (map[string]an
 		"translationType":       "AUTO_TRANSLATE",
 		"canUseNicknameOnComet": false,
 		"__relay_internal__pv__groups_comet_use_glvrelayprovider":                      false,
-		"__relay_internal__pv__CometUFICommentActionLinksRewriteEnabledrelayprovider":  false,
+		"__relay_internal__pv__CometUFICommentActionLinksRewriteEnabledrelayprovider":  true,
 		"__relay_internal__pv__CometUFICommentAvatarStickerAnimatedImagerelayprovider": false,
 		"__relay_internal__pv__IsWorkUserrelayprovider":                                false,
 		"__relay_internal__pv__CometUFICommentAutoTranslationTyperelayprovider":        "AUTO_TRANSLATE",

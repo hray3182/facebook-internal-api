@@ -323,7 +323,7 @@ func TestCreateComment_sends_create_comment_mutation_when_input_valid(t *testing
 		WithLSD("lsd-token"),
 	)
 	input := CreateCommentInput{
-		FeedbackID: FeedbackID("25024155660614181"),
+		FeedbackID: FeedbackID("pfbid0TestCreate"),
 		Text:       "hello",
 		GroupID:    "10081235341999458",
 	}
@@ -369,7 +369,7 @@ func TestCreateComment_sends_create_comment_mutation_when_input_valid(t *testing
 	if jsonStr(mutationInput, "actor_id") != "100087873054623" {
 		t.Fatalf("actor_id = %q, want cookie user id", jsonStr(mutationInput, "actor_id"))
 	}
-	if jsonStr(mutationInput, "feedback_id") != FeedbackID("25024155660614181") {
+	if jsonStr(mutationInput, "feedback_id") != FeedbackID("pfbid0TestCreate") {
 		t.Fatalf("feedback_id = %q, want encoded feedback id", jsonStr(mutationInput, "feedback_id"))
 	}
 	if jsonStr(message, "text") != "hello" {

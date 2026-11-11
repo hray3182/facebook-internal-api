@@ -115,3 +115,21 @@ func TestQueryVariables_includeRelayProviders(t *testing.T) {
 		t.Fatal("comments list variables missing targetDialect")
 	}
 }
+
+func TestCreateComment_numericFeedbackID_isLookedUpFirst(t *testing.T) {
+	c, rt := newRecordingClient(t, commentingStatusGraphQLResponse(false), createCommentGraphQLResponse())
+
+	_, err := c.CreateComment(context.Background(), CreateCommentInput{
+		FeedbackID: FeedbackID("1722750337980889"),
+		Text:       "hi",
+	})
+	if err != nil {
+		t.Fatalf("CreateComment() error = %v", err)
+	}
+	if len(rt.friendly) != 2 || rt.friendly[0] != commentsDialogFriendlyName || rt.friendly[1] != createCommentFriendlyName {
+		t.Fatalf("requests = %v, want dialog lookup then create mutation", rt.friendly)
+	}
+	if !strings.Contains(rt.variables[1], FeedbackID("pfbid0TestPost")) {
+		t.Fatalf("mutation variables = %s, want pfbid feedback id", rt.variables[1])
+	}
+}
